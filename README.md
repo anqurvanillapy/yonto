@@ -1,2 +1,0 @@
-# joben
-Joben scripting language
