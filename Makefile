@@ -16,5 +16,5 @@ OPTIMIZE_FLAGS := -O0
 DEBUG_FLAGS := -g3
 LIBS := -lgccjit
 
-joben: joben.c
+joben: src/joben.c
 	clang ${LINT_FLAGS} ${OPTIMIZE_FLAGS} ${DEBUG_FLAGS} ${LIBS} -o $@ $?
