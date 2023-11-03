@@ -1,6 +1,5 @@
 #include "libgccjit.h"
 #include <ctype.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -172,6 +171,21 @@ parse_seq(void *p, struct source *s)
     return s;
 }
 
+struct fn {
+    struct lowercase_parser name;
+};
+
+int
+parse_fn(struct fn *fn, struct source *s)
+{
+    struct word_parser fn_word= {"fn"};
+    struct parser fn_parser = {&fn_word, parse_word};
+    struct parser name_parser = {&fn->name, parse_lowercase};
+    struct seq_parser seq = {{&fn_parser, &name_parser}, 2};
+    s = parse_seq(&seq, s);
+    return s->failed;
+}
+
 struct app {
     const char *filename;
     FILE *infile;
@@ -214,19 +228,13 @@ main(int argc, const char *argv[])
         return 1;
     }
 
-    struct source *s = &app.src;
-
-    struct word_parser fn = {"fn"};
-    struct parser fn_parser = {&fn, parse_word};
-    struct lowercase_parser name;
-    struct parser name_parser = {&name, parse_lowercase};
-    struct seq_parser seq = {{&fn_parser, &name_parser}, 2};
-    s = parse_seq(&seq, s);
-    if (s->failed) {
-        printf("parse seq error: pos=%lu\n", s->loc.pos);
+    struct fn fn;
+    if (parse_fn(&fn, &app.src)) {
+        printf("parse seq error: pos=%lu\n", app.src.loc.pos);
         return 1;
     }
-    printf("name: start.col=%lu, end.col=%lu\n", name.span.start.col, name.span.end.col);
+
+    printf("name: start.col=%lu, end.col=%lu\n", fn.name.span.start.col, fn.name.span.end.col);
     if (app_close(&app) != 0) {
         return 1;
     }
