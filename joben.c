@@ -1,5 +1,6 @@
 #include "libgccjit.h"
 #include <ctype.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -35,29 +36,30 @@ struct span {
 };
 
 struct source {
-    const char *text;
-    size_t size;
     struct loc loc;
+    FILE *f;
     int failed;
 };
 
-void source_init(struct source *s, const char *text, size_t size);
-char source_peek(struct source *s);
-char source_next(struct source *s);
-
 void
-source_init(struct source *s, const char *text, size_t size)
+source_init(struct source *s, FILE *f)
 {
-    s->text = text;
-    s->size = size;
     loc_init(&s->loc);
+    s->f = f;
     s->failed = 0;
 }
 
 char
 source_peek(struct source *s)
 {
-    return s->loc.pos < s->size ? s->text[s->loc.pos] : -1;
+    if (fseek(s->f, (long)s->loc.pos, SEEK_SET) != 0) {
+        return -1;
+    }
+    int c = fgetc(s->f);
+    if (c == EOF) {
+        return -1;
+    }
+    return (char)c;
 }
 
 char
@@ -133,14 +135,13 @@ parse_lowercase(void *p, struct source *s)
 
     while (1) {
         char c = source_peek(s);
-        if (!islower(c) || !isalpha(first)) {
-            struct lowercase_parser *parser = p;
-            parser->span = (struct span){start, s->loc};
+        if ((!islower(c) || !isalpha(c)) && c != '_') {
             break;
         }
         s = parse_char(s, c);
     }
 
+    ((struct lowercase_parser *)p)->span = (struct span){start, s->loc};
     return s;
 }
 
@@ -164,22 +165,56 @@ parse_seq(void *p, struct source *s)
         if (s->failed) {
             return s;
         }
-        s = skip_spaces(s);
+        if (i + 1 < seq->size) {
+            s = skip_spaces(s);
+        }
     }
     return s;
+}
+
+struct app {
+    const char *filename;
+    FILE *infile;
+    struct source src;
+};
+
+int
+app_init(struct app *app, int argc, const char *argv[])
+{
+    if (argc < 2) {
+        return -1;
+    }
+    app->filename = argv[1];
+    app->infile = fopen(app->filename, "r");
+    if (!app->infile) {
+        perror("open file error");
+        return -1;
+    }
+    source_init(&app->src, app->infile);
+    return 0;
+}
+
+int
+app_close(struct app *app)
+{
+    int ret = fclose(app->infile);
+    if (ret != 0) {
+        perror("close file error");
+    }
+    return ret;
 }
 
 int
 main(int argc, const char *argv[])
 {
-    (void)argc;
-    (void)argv;
-
     // Parsing some text.
-    const char text[] = "fn hello_world";
-    struct source src;
-    source_init(&src, text, sizeof(text) - 1);
-    struct source *s = &src;
+    struct app app;
+    if (app_init(&app, argc, argv) != 0) {
+        printf("usage: joben FILE\n");
+        return 1;
+    }
+
+    struct source *s = &app.src;
 
     struct word_parser fn = {"fn"};
     struct parser fn_parser = {&fn, parse_word};
@@ -191,11 +226,10 @@ main(int argc, const char *argv[])
         printf("parse seq error: pos=%lu\n", s->loc.pos);
         return 1;
     }
-    printf("name: ");
-    fflush(stdout);
-    write(STDOUT_FILENO, text + name.span.start.pos, name.span.end.pos - name.span.start.pos);
-    printf("\n");
-    fflush(stdout);
+    printf("name: start.col=%lu, end.col=%lu\n", name.span.start.col, name.span.end.col);
+    if (app_close(&app) != 0) {
+        return 1;
+    }
 
     // JIT example below.
 
