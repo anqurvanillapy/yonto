@@ -1,7 +1,122 @@
 #include "libgccjit.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
+
+static volatile int _NEXT_UID = 0;
+
+static int
+_next_uid(void)
+{
+    _NEXT_UID++;
+    return _NEXT_UID;
+}
+
+static int
+_max(int a, int b)
+{
+    return a > b ? a : b;
+}
+
+struct node {
+    int key;
+    struct node *left;
+    struct node *right;
+    int height;
+};
+
+void
+node_init(struct node *node, int key)
+{
+    node->key = key;
+    node->left = NULL;
+    node->right = NULL;
+    node->height = 1;
+}
+
+static int
+_node_height(struct node *node)
+{
+    return node == NULL ? 0 : node->height;
+}
+
+static struct node *
+_node_right_rotate(struct node *x)
+{
+    struct node *y = x->left;
+    struct node *z = y->right;
+    y->right = x;
+    x->left = z;
+    x->height = _max(_node_height(x->left), _node_height(x->right)) + 1;
+    y->height = _max(_node_height(y->left), _node_height(y->right)) + 1;
+    return y;
+}
+
+static struct node *
+_node_left_rotate(struct node *x)
+{
+    struct node *y = x->right;
+    struct node *z = y->left;
+    y->left = x;
+    x->right = z;
+    x->height = _max(_node_height(x->left), _node_height(x->right)) + 1;
+    y->height = _max(_node_height(y->left), _node_height(y->right)) + 1;
+    return y;
+}
+
+static int
+_node_balance(struct node *node)
+{
+    return node == NULL ? 0 : _node_height(node->left) - _node_height(node->right);
+}
+
+struct node *
+node_insert(struct node *node, struct node *other)
+{
+    if (!node) {
+        return other;
+    }
+
+    if (other->key < node->key) {
+        node->left = node_insert(node->left, other);
+    } else if (other->key > node->key) {
+        node->right = node_insert(node->right, other);
+    } else {
+        return node;
+    }
+
+    node->height = _max(_node_height(node->left), _node_height(node->right)) + 1;
+
+    int balance = _node_balance(node);
+    if (balance > 1 && other->key < node->left->key) {
+        return _node_right_rotate(node);
+    }
+    if (balance < -1 && other->key > node->right->key) {
+        return _node_left_rotate(node);
+    }
+    if (balance > 1 && other->key > node->left->key) {
+        node->left = _node_left_rotate(node->left);
+        return _node_right_rotate(node);
+    }
+    if (balance < -1 && other->key < node->right->key) {
+        node->right = _node_right_rotate(node->right);
+        return _node_left_rotate(node);
+    }
+
+    return node;
+}
+
+void
+node_foreach(struct node *node, void (*f)(struct node *node))
+{
+    if (!node) {
+        return;
+    }
+    node_foreach(node->left, f);
+    f(node);
+    node_foreach(node->right, f);
+}
 
 struct loc {
     size_t pos, ln, col;
@@ -172,13 +287,14 @@ parse_seq(void *p, struct source *s)
 }
 
 struct fn {
+    struct node node;
     struct lowercase_parser name;
 };
 
 int
 parse_fn(struct fn *fn, struct source *s)
 {
-    struct word_parser fn_word= {"fn"};
+    struct word_parser fn_word = {"fn"};
     struct parser fn_parser = {&fn_word, parse_word};
     struct parser name_parser = {&fn->name, parse_lowercase};
     struct seq_parser seq = {{&fn_parser, &name_parser}, 2};
@@ -218,6 +334,13 @@ app_close(struct app *app)
     return ret;
 }
 
+static void
+iter_node(struct node *node)
+{
+    struct fn *fn = (struct fn *)node;
+    printf("fn: key=%d, pos=%lu\n", fn->node.key, fn->name.span.start.pos);
+}
+
 int
 main(int argc, const char *argv[])
 {
@@ -238,6 +361,20 @@ main(int argc, const char *argv[])
     if (app_close(&app) != 0) {
         return 1;
     }
+
+    // Testing some trees.
+    struct fn fn1, fn2, fn3;
+    node_init(&fn1.node, _next_uid());
+    fn1.name.span.start.pos = 10;
+    node_init(&fn2.node, _next_uid());
+    fn2.name.span.start.pos = 20;
+    node_init(&fn3.node, _next_uid());
+    fn3.name.span.start.pos = 30;
+    struct node *tree = NULL;
+    tree = node_insert(tree, &fn1.node);
+    tree = node_insert(tree, &fn2.node);
+    tree = node_insert(tree, &fn3.node);
+    node_foreach(tree, iter_node);
 
     // JIT example below.
 
