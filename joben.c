@@ -38,7 +38,7 @@ node_init(struct node *node, int key)
 static int
 _node_height(struct node *node)
 {
-    return node == NULL ? 0 : node->height;
+    return !node ? 0 : node->height;
 }
 
 static struct node *
@@ -68,7 +68,7 @@ _node_left_rotate(struct node *x)
 static int
 _node_balance(struct node *node)
 {
-    return node == NULL ? 0 : _node_height(node->left) - _node_height(node->right);
+    return !node ? 0 : _node_height(node->left) - _node_height(node->right);
 }
 
 struct node *
