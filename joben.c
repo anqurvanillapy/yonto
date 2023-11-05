@@ -1,5 +1,6 @@
 #include "libgccjit.h"
 #include <ctype.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -27,12 +28,12 @@ struct node {
 };
 
 void
-node_init(struct node *node, int key)
+tree_init(struct node *tree, int key)
 {
-    node->key = key;
-    node->left = NULL;
-    node->right = NULL;
-    node->height = 1;
+    tree->key = key;
+    tree->left = NULL;
+    tree->right = NULL;
+    tree->height = 1;
 }
 
 static int
@@ -72,50 +73,178 @@ _node_balance(struct node *node)
 }
 
 struct node *
-node_insert(struct node *node, struct node *other)
+tree_insert(struct node *root, struct node *other)
 {
-    if (!node) {
+    if (!root) {
         return other;
     }
 
-    if (other->key < node->key) {
-        node->left = node_insert(node->left, other);
-    } else if (other->key > node->key) {
-        node->right = node_insert(node->right, other);
+    if (other->key < root->key) {
+        root->left = tree_insert(root->left, other);
+    } else if (other->key > root->key) {
+        root->right = tree_insert(root->right, other);
     } else {
-        return node;
+        return root;
     }
 
-    node->height = _max(_node_height(node->left), _node_height(node->right)) + 1;
+    root->height = _max(_node_height(root->left), _node_height(root->right)) + 1;
 
-    int balance = _node_balance(node);
-    if (balance > 1 && other->key < node->left->key) {
-        return _node_right_rotate(node);
+    int balance = _node_balance(root);
+    if (balance > 1 && other->key < root->left->key) {
+        return _node_right_rotate(root);
     }
-    if (balance < -1 && other->key > node->right->key) {
-        return _node_left_rotate(node);
+    if (balance < -1 && other->key > root->right->key) {
+        return _node_left_rotate(root);
     }
-    if (balance > 1 && other->key > node->left->key) {
-        node->left = _node_left_rotate(node->left);
-        return _node_right_rotate(node);
+    if (balance > 1 && other->key > root->left->key) {
+        root->left = _node_left_rotate(root->left);
+        return _node_right_rotate(root);
     }
-    if (balance < -1 && other->key < node->right->key) {
-        node->right = _node_right_rotate(node->right);
-        return _node_left_rotate(node);
+    if (balance < -1 && other->key < root->right->key) {
+        root->right = _node_right_rotate(root->right);
+        return _node_left_rotate(root);
     }
 
-    return node;
+    return root;
 }
 
 void
-node_foreach(struct node *node, void (*f)(struct node *node))
+tree_foreach(struct node *root, void (*f)(struct node *node))
 {
-    if (!node) {
+    if (!root) {
         return;
     }
-    node_foreach(node->left, f);
-    f(node);
-    node_foreach(node->right, f);
+    tree_foreach(root->left, f);
+    f(root);
+    tree_foreach(root->right, f);
+}
+
+void
+tree_free(struct node *root)
+{
+    if (!root) {
+        return;
+    }
+    tree_free(root->left);
+    tree_free(root->right);
+    free(root);
+}
+
+enum object_type { OBJ_NUM = 1 };
+
+struct object {
+    enum object_type type;
+    uint8_t marked;
+    struct object *next;
+};
+
+void
+object_init(struct object *o, enum object_type type, struct object *next)
+{
+    o->type = type;
+    o->marked = 0;
+    o->next = next;
+}
+
+void
+object_mark(struct object *o)
+{
+    if (o->marked) {
+        return;
+    }
+    o->marked = 1;
+    // TODO: Mark other objects from the members.
+}
+
+struct gc {
+    struct object *stack[256];
+    size_t stack_size, reachable, max;
+    struct object *root;
+};
+
+void
+gc_init(struct gc *c)
+{
+    c->stack_size = 0;
+    c->reachable = 0;
+    c->max = 8;
+    c->root = NULL;
+}
+
+void
+gc_push(struct gc *gc, struct object *value)
+{
+    if (gc->stack_size >= sizeof(gc->stack) / sizeof(struct object *)) {
+        printf("stack overflow\n");
+        exit(1);
+    }
+    gc->stack[gc->stack_size] = value;
+    gc->stack_size++;
+}
+
+struct object *
+gc_pop(struct gc *gc)
+{
+    if (gc->stack_size <= 0) {
+        printf("stack overflow\n");
+        exit(1);
+    }
+    struct object *ret = gc->stack[gc->stack_size];
+    gc->stack_size--;
+    return ret;
+}
+
+void
+gc_mark(struct gc *vm)
+{
+    for (size_t i = 0; i < vm->stack_size; i++) {
+        object_mark(vm->stack[i]);
+    }
+}
+
+void
+gc_sweep(struct gc *vm)
+{
+    struct object **object = &vm->root;
+    while (*object) {
+        if ((*object)->marked) {
+            (*object)->marked = 0;
+            object = &(*object)->next;
+            continue;
+        }
+        struct object *unreached = *object;
+        *object = unreached->next;
+        free(unreached);
+        vm->reachable--;
+    }
+}
+
+void
+gc_run(struct gc *vm)
+{
+    gc_mark(vm);
+    gc_sweep(vm);
+    vm->max = vm->reachable == 0 ? 8 : vm->reachable * 2;
+}
+
+struct object *
+gc_object_new(struct gc *vm, enum object_type type)
+{
+    if (vm->reachable == vm->max) {
+        gc_run(vm);
+    }
+    struct object *o = malloc(sizeof(struct object));
+    object_init(o, type, vm->root);
+    vm->root = o;
+    vm->reachable++;
+    return o;
+}
+
+void
+gc_close(struct gc *vm)
+{
+    vm->stack_size = 0;
+    gc_run(vm);
 }
 
 struct loc {
@@ -286,20 +415,33 @@ parse_seq(void *p, struct source *s)
     return s;
 }
 
+struct parameter {
+    struct node node;
+    struct span span;
+    struct lowercase_parser name;
+};
+
+struct parameter *
+node_to_parameter(struct node *node)
+{
+    return (struct parameter *)(void *)((uint8_t *)node - offsetof(struct parameter, node));
+}
+
 struct fn {
     struct node node;
     struct lowercase_parser name;
+    struct node *params;
 };
+
+static struct word_parser _FN_WORD = {"fn"};
+static struct parser _FN_WORD_PARSER = {&_FN_WORD, parse_word};
 
 int
 parse_fn(struct fn *fn, struct source *s)
 {
-    struct word_parser fn_word = {"fn"};
-    struct parser fn_parser = {&fn_word, parse_word};
-    struct parser name_parser = {&fn->name, parse_lowercase};
-    struct seq_parser seq = {{&fn_parser, &name_parser}, 2};
-    s = parse_seq(&seq, s);
-    return s->failed;
+    struct parser fn_name = {&fn->name, parse_lowercase};
+    struct seq_parser seq = {{&_FN_WORD_PARSER, &fn_name}, 2};
+    return parse_seq(&seq, s)->failed;
 }
 
 struct app {
@@ -364,17 +506,17 @@ main(int argc, const char *argv[])
 
     // Testing some trees.
     struct fn fn1, fn2, fn3;
-    node_init(&fn1.node, _next_uid());
+    tree_init(&fn1.node, _next_uid());
     fn1.name.span.start.pos = 10;
-    node_init(&fn2.node, _next_uid());
+    tree_init(&fn2.node, _next_uid());
     fn2.name.span.start.pos = 20;
-    node_init(&fn3.node, _next_uid());
+    tree_init(&fn3.node, _next_uid());
     fn3.name.span.start.pos = 30;
     struct node *tree = NULL;
-    tree = node_insert(tree, &fn1.node);
-    tree = node_insert(tree, &fn2.node);
-    tree = node_insert(tree, &fn3.node);
-    node_foreach(tree, iter_node);
+    tree = tree_insert(tree, &fn1.node);
+    tree = tree_insert(tree, &fn2.node);
+    tree = tree_insert(tree, &fn3.node);
+    tree_foreach(tree, iter_node);
 
     // JIT example below.
 
