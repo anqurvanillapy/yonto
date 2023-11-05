@@ -3,6 +3,7 @@
 .vscode/
 
 /joben
+/joben_sanitize_*
 
 # Prerequisites
 *.d
