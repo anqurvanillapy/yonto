@@ -382,8 +382,7 @@ source_back(struct source *s, struct loc loc)
 struct source *
 parse_char(struct source *s, char c)
 {
-    char next = source_next(s);
-    if (next != c) {
+    if (source_next(s) != c) {
         s->failed = 1;
     }
     return s;
