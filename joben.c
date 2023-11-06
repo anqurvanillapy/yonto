@@ -181,18 +181,18 @@ tree_free(struct node *root, void *(*downcast)(struct node *node))
     free(downcast(root));
 }
 
-enum object_type { OBJ_NUM = 1 };
+enum object_kind { OBJ_NUM = 1 };
 
 struct object {
-    enum object_type type;
+    enum object_kind kind;
     uint8_t marked;
     struct object *next;
 };
 
 void
-object_init(struct object *o, enum object_type type, struct object *next)
+object_init(struct object *o, enum object_kind kind, struct object *next)
 {
-    o->type = type;
+    o->kind = kind;
     o->marked = 0;
     o->next = next;
 }
@@ -279,13 +279,13 @@ gc_run(struct gc *vm)
 }
 
 struct object *
-gc_object_new(struct gc *vm, enum object_type type)
+gc_object_new(struct gc *vm, enum object_kind kind)
 {
     if (vm->reachable == vm->max) {
         gc_run(vm);
     }
     struct object *o = new (struct object);
-    object_init(o, type, vm->root);
+    object_init(o, kind, vm->root);
     vm->root = o;
     vm->reachable++;
     return o;
@@ -401,10 +401,19 @@ skip_spaces(struct source *s)
     return s;
 }
 
-struct source *
-word(void *w, struct source *s)
+struct parser {
+    struct source *(*parse)(void *p, struct source *s);
+};
+
+struct word {
+    struct parser parser;
+    const char *word;
+};
+
+static struct source *
+_parse_word(void *w, struct source *s)
 {
-    const char *word = w;
+    const char *word = ((struct word *)w)->word;
     size_t i = 0;
     for (char c = word[i]; c != '\0'; i++, c = word[i]) {
         s = parse_char(s, c);
@@ -415,12 +424,22 @@ word(void *w, struct source *s)
     return s;
 }
 
+struct word
+word(const char *word)
+{
+    struct word w;
+    w.parser.parse = _parse_word;
+    w.word = word;
+    return w;
+}
+
 struct lowercase {
+    struct parser parser;
     struct span span;
 };
 
-struct source *
-lowercase(void *p, struct source *s)
+static struct source *
+_parse_lowercase(void *p, struct source *s)
 {
     struct loc start = s->loc;
 
@@ -443,23 +462,27 @@ lowercase(void *p, struct source *s)
     return s;
 }
 
-struct parser {
-    void *data;
-    struct source *(*parse)(void *p, struct source *s);
-};
+struct lowercase
+lowercase(void)
+{
+    struct lowercase lc;
+    lc.parser.parse = _parse_lowercase;
+    return lc;
+}
 
 struct all {
+    struct parser parser;
     struct parser *parsers[8];
     size_t size;
 };
 
 struct source *
-all(void *p, struct source *s)
+_parse_all(void *p, struct source *s)
 {
     struct all *a = p;
     for (size_t i = 0; i < a->size; i++) {
         struct parser *parser = a->parsers[i];
-        s = parser->parse(parser->data, s);
+        s = parser->parse(parser, s);
         if (s->failed) {
             return s;
         }
@@ -470,19 +493,39 @@ all(void *p, struct source *s)
     return s;
 }
 
+struct all
+all(void)
+{
+    struct all a;
+    a.parser.parse = _parse_all;
+    a.size = 0;
+    return a;
+}
+
+void
+all_add(struct all *a, struct parser *parser)
+{
+    if (a->size >= sizeof(a->parsers) / sizeof(struct parser)) {
+        panic("parsers out of bound");
+    }
+    a->parsers[a->size] = parser;
+    a->size++;
+}
+
 struct any {
+    struct parser parser;
     struct parser *parsers[16];
     size_t size;
 };
 
-struct source *
-any(void *p, struct source *s)
+static struct source *
+_parse_any(void *p, struct source *s)
 {
     struct any *a = p;
     struct loc loc = s->loc;
     for (size_t i = 0; i < a->size; i++) {
         struct parser *parser = a->parsers[i];
-        s = parser->parse(parser->data, s);
+        s = parser->parse(parser, s);
         if (!s->failed) {
             return s;
         }
@@ -492,17 +535,37 @@ any(void *p, struct source *s)
     return s;
 }
 
+struct any
+any(void)
+{
+    struct any a;
+    a.parser.parse = _parse_any;
+    a.size = 0;
+    return a;
+}
+
+void
+any_add(struct any *a, struct parser *parser)
+{
+    if (a->size >= sizeof(a->parsers) / sizeof(struct parser)) {
+        panic("parsers out of bound");
+    }
+    a->parsers[a->size] = parser;
+    a->size++;
+}
+
 struct many {
-    struct parser *parser;
+    struct parser parser;
+    struct parser *p;
 };
 
-struct source *
-many(void *p, struct source *s)
+static struct source *
+_parse_many(void *p, struct source *s)
 {
-    struct parser *parser = ((struct many *)p)->parser;
+    struct parser *parser = ((struct many *)p)->p;
     while (1) {
         struct loc loc = s->loc;
-        s = parser->parse(parser->data, s);
+        s = parser->parse(parser, s);
         if (s->failed) {
             return source_back(s, loc);
         }
@@ -510,12 +573,14 @@ many(void *p, struct source *s)
     }
 }
 
-// static struct parser _NEWLINE = {"\n", word};
-static struct parser _FN = {"fn", word};
-static struct parser _LPAREN = {"(", word};
-static struct parser _RPAREN = {")", word};
-static struct parser _COMMA = {",", word};
-// static struct parser _ASSIGN = {"=", word};
+struct many
+many(struct parser *p)
+{
+    struct many m;
+    m.parser.parse = _parse_many;
+    m.p = p;
+    return m;
+}
 
 struct param {
     struct node node;
@@ -535,20 +600,20 @@ node_as_param(struct node *node)
 }
 
 struct fn_params {
+    struct parser parser;
     struct node *params;
 };
 
-void
-fn_params_init(struct fn_params *f)
-{
-    f->params = NULL;
-}
+struct fn_param {
+    struct parser parser;
+    struct fn_params *params;
+};
 
-struct source *
-parse_fn_param(void *p, struct source *s)
+static struct source *
+_parse_fn_param(void *p, struct source *s)
 {
-    struct lowercase name;
-    s = lowercase(&name, s);
+    struct lowercase name = lowercase();
+    s = name.parser.parse(&name, s);
     if (s->failed) {
         return s;
     }
@@ -556,52 +621,99 @@ parse_fn_param(void *p, struct source *s)
     param_init(param);
     param->name = name;
     param->node.key = _next_uid();
-    struct fn_params *params = p;
-    params->params = tree_insert(params->params, &param->node);
+    struct fn_param *fn_param = p;
+    fn_param->params->params = tree_insert(fn_param->params->params, &param->node);
     return s;
 }
 
-struct source *
-parse_fn_params(void *p, struct source *s)
+struct fn_param
+fn_param(void *p)
 {
-    struct fn_params *parser = p;
+    struct fn_param f;
+    f.parser.parse = _parse_fn_param;
+    f.params = (struct fn_params *)p;
+    return f;
+}
 
-    struct all all_no_params = {{&_LPAREN, &_RPAREN}, 2};
-    struct parser no_params_parser = {&all_no_params, all};
+static struct source *
+_parse_fn_params(void *p, struct source *s)
+{
+    struct word lparen = word("(");
+    struct word rparen = word(")");
+    struct word comma = word(",");
 
-    struct parser one_param_parser = {parser, parse_fn_param};
-    struct all other_params = {{&_COMMA, &one_param_parser}, 2};
-    struct parser other_params_parser = {&other_params, all};
-    struct many many_other_params = {&other_params_parser};
-    struct parser many_other_params_parser = {&many_other_params, many};
-    struct all all_multi_params = {{&_LPAREN, &one_param_parser, &many_other_params_parser, &_RPAREN}, 4};
-    struct parser multi_params_parser = {&all_multi_params, all};
+    struct all all_no_params = all();
+    all_add(&all_no_params, &lparen.parser);
+    all_add(&all_no_params, &rparen.parser);
 
-    struct any branches = {{&no_params_parser, &multi_params_parser}, 2};
-    return any(&branches, s);
+    struct fn_param one_param = fn_param(p);
+
+    struct all other_params = all();
+    all_add(&other_params, &comma.parser);
+    all_add(&other_params, &one_param.parser);
+    struct many many_other_params = many(&other_params.parser);
+    struct all all_multi_params = all();
+    all_add(&all_multi_params, &lparen.parser);
+    all_add(&all_multi_params, &one_param.parser);
+    all_add(&all_multi_params, &many_other_params.parser);
+    all_add(&all_multi_params, &rparen.parser);
+
+    struct any branches = any();
+    any_add(&branches, &all_no_params.parser);
+    any_add(&branches, &all_multi_params.parser);
+    return branches.parser.parse(&branches, s);
+}
+
+struct fn_params
+fn_params(void)
+{
+    struct fn_params f;
+    f.parser.parse = _parse_fn_params;
+    f.params = NULL;
+    return f;
 }
 
 struct fn {
-    struct node node;
+    struct parser parser;
     struct lowercase name;
     struct fn_params params;
 };
 
-void
-fn_init(struct fn *f)
+static struct source *
+_parse_fn(void *p, struct source *s)
 {
-    node_init(&f->node);
-    fn_params_init(&f->params);
+    struct fn *f = p;
+    struct word fn_word = word("fn");
+    struct word assign_word = word("=");
+    struct all all_fn = all();
+    all_add(&all_fn, &fn_word.parser);
+    all_add(&all_fn, &f->name.parser);
+    all_add(&all_fn, &f->params.parser);
+    all_add(&all_fn, &assign_word.parser);
+    return all_fn.parser.parse(&all_fn, s);
 }
 
-int
-parse_fn(struct fn *fn, struct source *s)
+struct fn
+fn(void)
 {
-    struct parser name = {&fn->name, lowercase};
-    struct parser params = {&fn->params, parse_fn_params};
-    struct all p = {{&_FN, &name, &params}, 3};
-    return all(&p, s)->failed;
+    struct fn f;
+    f.parser.parse = _parse_fn;
+    f.name = lowercase();
+    f.params = fn_params();
+    return f;
 }
+
+enum def_kind { DEF_FN = 1 };
+
+struct def {
+    struct lowercase name;
+    struct fn_params params;
+
+    enum def_kind kind;
+    union {
+        struct fn fn;
+    } body;
+};
 
 struct app {
     const char *filename;
@@ -654,15 +766,15 @@ main(int argc, const char *argv[])
         return 1;
     }
 
-    struct fn fn;
-    fn_init(&fn);
-    if (parse_fn(&fn, &app.src)) {
-        printf("parse function error: pos=%lu\n", app.src.loc.pos);
+    struct fn f = fn();
+    struct source *s = f.parser.parse(&f, &app.src);
+    if (s->failed) {
+        printf("parse function error: pos=%lu\n", s->loc.pos);
         return 1;
     }
-    tree_foreach(fn.params.params, iter_param);
+    tree_foreach(f.params.params, iter_param);
 
-    printf("name: start.col=%lu, end.col=%lu\n", fn.name.span.start.col, fn.name.span.end.col);
+    printf("name: start.col=%lu, end.col=%lu\n", f.name.span.start.col, f.name.span.end.col);
     if (app_close(&app) != 0) {
         return 1;
     }
