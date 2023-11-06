@@ -42,4 +42,4 @@ joben_sanitize_ubsan: ${SRC}
 
 .PHONY: clean
 clean:
-	rm -rf joben joben_sanitize_*
+	rm -rf joben joben_sanitize_* *.dSYM

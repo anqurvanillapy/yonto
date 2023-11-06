@@ -472,21 +472,21 @@ lowercase(void)
 
 struct all {
     struct parser parser;
-    struct parser *parsers[8];
-    size_t size;
+    struct parser **parsers;
 };
 
 struct source *
 _parse_all(void *p, struct source *s)
 {
     struct all *a = p;
-    for (size_t i = 0; i < a->size; i++) {
-        struct parser *parser = a->parsers[i];
-        s = parser->parse(parser, s);
+    struct parser **parser = a->parsers;
+    while (*parser) {
+        s = (*parser)->parse(*parser, s);
         if (s->failed) {
             return s;
         }
-        if (i + 1 < a->size) {
+        parser++;
+        if (*parser) {
             s = skip_spaces(s);
         }
     }
@@ -494,28 +494,17 @@ _parse_all(void *p, struct source *s)
 }
 
 struct all
-all(void)
+all(struct parser **parsers)
 {
     struct all a;
     a.parser.parse = _parse_all;
-    a.size = 0;
+    a.parsers = parsers;
     return a;
-}
-
-void
-all_add(struct all *a, struct parser *parser)
-{
-    if (a->size >= sizeof(a->parsers) / sizeof(struct parser)) {
-        panic("parsers out of bound");
-    }
-    a->parsers[a->size] = parser;
-    a->size++;
 }
 
 struct any {
     struct parser parser;
-    struct parser *parsers[16];
-    size_t size;
+    struct parser **parsers;
 };
 
 static struct source *
@@ -523,9 +512,8 @@ _parse_any(void *p, struct source *s)
 {
     struct any *a = p;
     struct loc loc = s->loc;
-    for (size_t i = 0; i < a->size; i++) {
-        struct parser *parser = a->parsers[i];
-        s = parser->parse(parser, s);
+    for (struct parser **parser = a->parsers; *parser; parser++) {
+        s = (*parser)->parse(*parser, s);
         if (!s->failed) {
             return s;
         }
@@ -536,22 +524,12 @@ _parse_any(void *p, struct source *s)
 }
 
 struct any
-any(void)
+any(struct parser **parsers)
 {
     struct any a;
     a.parser.parse = _parse_any;
-    a.size = 0;
+    a.parsers = parsers;
     return a;
-}
-
-void
-any_add(struct any *a, struct parser *parser)
-{
-    if (a->size >= sizeof(a->parsers) / sizeof(struct parser)) {
-        panic("parsers out of bound");
-    }
-    a->parsers[a->size] = parser;
-    a->size++;
 }
 
 struct many {
@@ -642,26 +620,20 @@ _parse_fn_params(void *p, struct source *s)
     struct word rparen = word(")");
     struct word comma = word(",");
 
-    struct all all_no_params = all();
-    all_add(&all_no_params, &lparen.parser);
-    all_add(&all_no_params, &rparen.parser);
+    struct parser *no_params[] = {&lparen.parser, &rparen.parser, NULL};
+    struct all all_no_params = all(no_params);
 
     struct fn_param one_param = fn_param(p);
+    struct parser *other_params[] = {&comma.parser, &one_param.parser, NULL};
+    struct all all_other_params = all(other_params);
+    struct many many_other_params = many(&all_other_params.parser);
+    struct parser *multi_params[] = {&lparen.parser, &one_param.parser, &many_other_params.parser, &rparen.parser,
+                                     NULL};
+    struct all all_multi_params = all(multi_params);
 
-    struct all other_params = all();
-    all_add(&other_params, &comma.parser);
-    all_add(&other_params, &one_param.parser);
-    struct many many_other_params = many(&other_params.parser);
-    struct all all_multi_params = all();
-    all_add(&all_multi_params, &lparen.parser);
-    all_add(&all_multi_params, &one_param.parser);
-    all_add(&all_multi_params, &many_other_params.parser);
-    all_add(&all_multi_params, &rparen.parser);
-
-    struct any branches = any();
-    any_add(&branches, &all_no_params.parser);
-    any_add(&branches, &all_multi_params.parser);
-    return branches.parser.parse(&branches, s);
+    struct parser *branches[] = {&all_no_params.parser, &all_multi_params.parser, NULL};
+    struct any any_branches = any(branches);
+    return any_branches.parser.parse(&any_branches, s);
 }
 
 struct fn_params
@@ -685,11 +657,8 @@ _parse_fn(void *p, struct source *s)
     struct fn *f = p;
     struct word fn_word = word("fn");
     struct word assign_word = word("=");
-    struct all all_fn = all();
-    all_add(&all_fn, &fn_word.parser);
-    all_add(&all_fn, &f->name.parser);
-    all_add(&all_fn, &f->params.parser);
-    all_add(&all_fn, &assign_word.parser);
+    struct parser *parsers[5] = {&fn_word.parser, &f->name.parser, &f->params.parser, &assign_word.parser, NULL};
+    struct all all_fn = all(parsers);
     return all_fn.parser.parse(&all_fn, s);
 }
 
