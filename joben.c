@@ -444,7 +444,7 @@ struct source *
 eoi(union parser_ctx *ctx, struct source *s)
 {
     (void)ctx;
-    if (s->loc.pos < source_size(s)) {
+    if (s->loc.pos != source_size(s)) {
         s->failed = 1;
     }
     return s;
