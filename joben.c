@@ -343,6 +343,15 @@ source_init(struct source *s, FILE *f)
     s->failed = 0;
 }
 
+size_t
+source_size(struct source *s)
+{
+    fseek(s->f, 0, SEEK_END);
+    long size = ftell(s->f);
+    fseek(s->f, (long)s->loc.pos, SEEK_SET);
+    return (size_t)size;
+}
+
 char
 source_peek(struct source *s)
 {
@@ -401,8 +410,9 @@ skip_spaces(struct source *s)
     return s;
 }
 
-struct fn;
 struct parser;
+struct fn;
+struct prog;
 
 union parser_ctx {
     const char *word;
@@ -412,12 +422,36 @@ union parser_ctx {
     struct span *span;
     struct node **nodes;
     struct fn *fn;
+    struct prog *prog;
 };
 
 struct parser {
     struct source *(*parse)(union parser_ctx *data, struct source *s);
     union parser_ctx data;
 };
+
+struct source *
+soi(union parser_ctx *ctx, struct source *s)
+{
+    (void)ctx;
+    if (s->loc.pos != 0) {
+        s->failed = 1;
+    }
+    return s;
+}
+
+struct source *
+eoi(union parser_ctx *ctx, struct source *s)
+{
+    (void)ctx;
+    if (s->loc.pos < source_size(s)) {
+        s->failed = 1;
+    }
+    return s;
+}
+
+static struct parser _SOI = {soi, {.word = NULL}};
+static struct parser _EOI = {eoi, {.word = NULL}};
 
 struct source *
 word(union parser_ctx *ctx, struct source *s)
@@ -563,6 +597,20 @@ fn(union parser_ctx *ctx, struct source *s)
     return all(&all_fn, s);
 }
 
+struct prog {
+    struct fn fn;
+};
+
+struct source *
+prog(union parser_ctx *ctx, struct source *s)
+{
+    struct parser fn_parser = {fn, {.fn = ctx->fn}};
+    // TODO: Many function definitions.
+    struct parser *parsers[] = {&_SOI, &fn_parser, &_EOI, NULL};
+    union parser_ctx all_parsers = {.parsers = parsers};
+    return all(&all_parsers, s);
+}
+
 struct app {
     const char *filename;
     FILE *infile;
@@ -614,16 +662,16 @@ main(int argc, const char *argv[])
         return 1;
     }
 
-    struct fn f;
-    union parser_ctx fn_parser = {.fn = &f};
-    struct source *s = fn(&fn_parser, &app.src);
+    struct prog program;
+    union parser_ctx prog_parser = {.fn = &program.fn};
+    struct source *s = prog(&prog_parser, &app.src);
     if (s->failed) {
-        printf("parse function error: pos=%lu\n", s->loc.pos);
+        printf("parse error: pos=%lu\n", s->loc.pos);
         return 1;
     }
-    tree_foreach(f.params, iter_param);
+    tree_foreach(program.fn.params, iter_param);
 
-    printf("name: start.col=%lu, end.col=%lu\n", f.name.start.col, f.name.end.col);
+    printf("name: start.col=%lu, end.col=%lu\n", program.fn.name.start.col, program.fn.name.end.col);
     if (app_close(&app) != 0) {
         return 1;
     }
