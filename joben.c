@@ -404,7 +404,7 @@ skip_spaces(struct source *s)
 struct fn;
 struct parser;
 
-union parser_data {
+union parser_ctx {
     const char *word;
     struct parser *parser;
     struct parser **parsers;
@@ -415,14 +415,14 @@ union parser_data {
 };
 
 struct parser {
-    struct source *(*parse)(union parser_data *data, struct source *s);
-    union parser_data data;
+    struct source *(*parse)(union parser_ctx *data, struct source *s);
+    union parser_ctx data;
 };
 
 struct source *
-word(union parser_data *p, struct source *s)
+word(union parser_ctx *ctx, struct source *s)
 {
-    const char *word = p->word;
+    const char *word = ctx->word;
     size_t i = 0;
     for (char c = word[i]; c != '\0'; i++, c = word[i]) {
         s = parse_char(s, c);
@@ -440,7 +440,7 @@ static struct parser _FN = {word, {.word = "fn"}};
 static struct parser _ASSIGN = {word, {.word = "="}};
 
 struct source *
-lowercase(union parser_data *p, struct source *s)
+lowercase(union parser_ctx *ctx, struct source *s)
 {
     struct loc start = s->loc;
 
@@ -459,14 +459,14 @@ lowercase(union parser_data *p, struct source *s)
         s = parse_char(s, c);
     }
 
-    *p->span = (struct span){start, s->loc};
+    *ctx->span = (struct span){start, s->loc};
     return s;
 }
 
 struct source *
-all(union parser_data *p, struct source *s)
+all(union parser_ctx *ctx, struct source *s)
 {
-    struct parser **parser = p->parsers;
+    struct parser **parser = ctx->parsers;
     while (*parser) {
         s = (*parser)->parse(&(*parser)->data, s);
         if (s->failed) {
@@ -481,10 +481,10 @@ all(union parser_data *p, struct source *s)
 }
 
 struct source *
-any(union parser_data *p, struct source *s)
+any(union parser_ctx *ctx, struct source *s)
 {
     struct loc loc = s->loc;
-    for (struct parser **parser = p->parsers; *parser; parser++) {
+    for (struct parser **parser = ctx->parsers; *parser; parser++) {
         s = (*parser)->parse(&(*parser)->data, s);
         if (!s->failed) {
             return s;
@@ -496,11 +496,11 @@ any(union parser_data *p, struct source *s)
 }
 
 struct source *
-many(union parser_data *p, struct source *s)
+many(union parser_ctx *ctx, struct source *s)
 {
     while (1) {
         struct loc loc = s->loc;
-        s = p->parser->parse(&p->parser->data, s);
+        s = ctx->parser->parse(&ctx->parser->data, s);
         if (s->failed) {
             return source_back(s, loc);
         }
@@ -514,10 +514,10 @@ struct param {
 };
 
 struct source *
-fn_param(union parser_data *p, struct source *s)
+fn_param(union parser_ctx *ctx, struct source *s)
 {
     struct span name;
-    union parser_data name_parser = {.span = &name};
+    union parser_ctx name_parser = {.span = &name};
     s = lowercase(&name_parser, s);
     if (s->failed) {
         return s;
@@ -526,17 +526,17 @@ fn_param(union parser_data *p, struct source *s)
     node_init(&param->node);
     param->name = name;
     param->node.key = _next_uid();
-    *p->nodes = tree_insert(*p->nodes, &param->node);
+    *ctx->nodes = tree_insert(*ctx->nodes, &param->node);
     return s;
 }
 
 struct source *
-fn_params(union parser_data *p, struct source *s)
+fn_params(union parser_ctx *ctx, struct source *s)
 {
     struct parser *no_params[] = {&_LPAREN, &_RPAREN, NULL};
     struct parser all_no_params = {all, {.parsers = no_params}};
 
-    struct parser one_param = {fn_param, {.nodes = p->nodes}};
+    struct parser one_param = {fn_param, {.nodes = ctx->nodes}};
     struct parser *other_params[] = {&_COMMA, &one_param, NULL};
     struct parser all_other_params = {all, {.parsers = other_params}};
     struct parser many_other_params = {many, {.parser = &all_other_params}};
@@ -544,7 +544,7 @@ fn_params(union parser_data *p, struct source *s)
     struct parser all_multi_params = {all, {.parsers = multi_params}};
 
     struct parser *branches[] = {&all_no_params, &all_multi_params, NULL};
-    union parser_data any_branches = {.parsers = branches};
+    union parser_ctx any_branches = {.parsers = branches};
     return any(&any_branches, s);
 }
 
@@ -554,12 +554,12 @@ struct fn {
 };
 
 struct source *
-fn(union parser_data *p, struct source *s)
+fn(union parser_ctx *ctx, struct source *s)
 {
-    struct parser name = {lowercase, {.span = &p->fn->name}};
-    struct parser params = {fn_params, {.nodes = &p->fn->params}};
+    struct parser name = {lowercase, {.span = &ctx->fn->name}};
+    struct parser params = {fn_params, {.nodes = &ctx->fn->params}};
     struct parser *parsers[] = {&_FN, &name, &params, &_ASSIGN, NULL};
-    union parser_data all_fn = {.parsers = parsers};
+    union parser_ctx all_fn = {.parsers = parsers};
     return all(&all_fn, s);
 }
 
@@ -615,7 +615,7 @@ main(int argc, const char *argv[])
     }
 
     struct fn f;
-    union parser_data fn_parser = {.fn = &f};
+    union parser_ctx fn_parser = {.fn = &f};
     struct source *s = fn(&fn_parser, &app.src);
     if (s->failed) {
         printf("parse function error: pos=%lu\n", s->loc.pos);
