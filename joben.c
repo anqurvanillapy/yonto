@@ -389,7 +389,7 @@ source_back(struct source *s, struct loc loc)
 }
 
 struct source *
-parse_char(struct source *s, char c)
+source_eat(struct source *s, char c)
 {
     if (source_next(s) != c) {
         s->failed = 1;
@@ -405,7 +405,7 @@ skip_spaces(struct source *s)
         if (c < 0 || !isspace(c)) {
             break;
         }
-        s = parse_char(s, c);
+        s = source_eat(s, c);
     }
     return s;
 }
@@ -414,8 +414,13 @@ struct parser;
 struct fn;
 struct prog;
 
+struct range {
+    char from, to;
+};
+
 union parser_ctx {
     const char *word;
+    struct range range;
     struct parser *parser;
     struct parser **parsers;
 
@@ -459,7 +464,7 @@ word(union parser_ctx *ctx, struct source *s)
     const char *word = ctx->word;
     size_t i = 0;
     for (char c = word[i]; c != '\0'; i++, c = word[i]) {
-        s = parse_char(s, c);
+        s = source_eat(s, c);
         if (s->failed) {
             break;
         }
@@ -474,6 +479,18 @@ static struct parser _FN = {word, {.word = "fn"}};
 static struct parser _ASSIGN = {word, {.word = "="}};
 
 struct source *
+range(union parser_ctx *ctx, struct source *s)
+{
+    char from = ctx->range.to, to = ctx->range.to;
+    char c = source_peek(s);
+    if (c < from || c > to) {
+        s->failed = 1;
+        return s;
+    }
+    return source_eat(s, c);
+}
+
+struct source *
 lowercase(union parser_ctx *ctx, struct source *s)
 {
     struct loc start = s->loc;
@@ -483,14 +500,14 @@ lowercase(union parser_ctx *ctx, struct source *s)
         s->failed = 1;
         return s;
     }
-    s = parse_char(s, first);
+    s = source_eat(s, first);
 
     while (1) {
         char c = source_peek(s);
         if (!(islower(c) && isalpha(c)) && c != '_') {
             break;
         }
-        s = parse_char(s, c);
+        s = source_eat(s, c);
     }
 
     *ctx->span = (struct span){start, s->loc};
