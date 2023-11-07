@@ -490,6 +490,11 @@ range(union parser_ctx *ctx, struct source *s)
     return source_eat(s, c);
 }
 
+static struct parser _ASCII_BIN_DIGIT = {range, {.range = {'0', '1'}}};
+static struct parser _ASCII_OCT_DIGIT = {range, {.range = {'0', '7'}}};
+static struct parser _ASCII_DIGIT = {range, {.range = {'0', '9'}}};
+static struct parser _ASCII_NONZERO_DIGIT = {range, {.range = {'1', '9'}}};
+
 struct source *
 lowercase(union parser_ctx *ctx, struct source *s)
 {
