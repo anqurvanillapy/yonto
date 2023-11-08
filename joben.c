@@ -332,7 +332,7 @@ struct span {
 struct source {
     struct loc loc;
     FILE *f;
-    int failed, atom;
+    int failed, atom, newline_sensitive;
 };
 
 void
@@ -342,6 +342,7 @@ source_init(struct source *s, FILE *f)
     s->f = f;
     s->failed = 0;
     s->atom = 0;
+    s->newline_sensitive = 0;
 }
 
 size_t
@@ -403,7 +404,7 @@ skip_spaces(struct source *s)
 {
     while (1) {
         char c = source_peek(s);
-        if (c < 0 || !isspace(c)) {
+        if (c < 0 || (s->newline_sensitive && c == '\n') || !isspace(c)) {
             break;
         }
         s = source_eat(s, c);
@@ -412,6 +413,7 @@ skip_spaces(struct source *s)
 }
 
 struct parser;
+struct expr;
 struct fn;
 struct prog;
 
@@ -427,6 +429,7 @@ union parser_ctx {
 
     struct span *span;
     struct node **nodes;
+    struct expr *expr;
     struct fn *fn;
     struct prog *prog;
 };
@@ -470,6 +473,16 @@ atom(union parser_ctx *ctx, struct source *s)
 }
 
 struct source *
+newline_sensitive(union parser_ctx *ctx, struct source *s)
+{
+    int newline_sensitive = s->newline_sensitive;
+    s->newline_sensitive = 1;
+    s = ctx->parser->parse(&ctx->parser->ctx, s);
+    s->newline_sensitive = newline_sensitive;
+    return s;
+}
+
+struct source *
 word(union parser_ctx *ctx, struct source *s)
 {
     const char *word = ctx->word;
@@ -487,6 +500,8 @@ static struct parser _LPAREN = {word, {.word = "("}};
 static struct parser _RPAREN = {word, {.word = ")"}};
 static struct parser _COMMA = {word, {.word = ","}};
 static struct parser _UNDER = {word, {.word = "_"}};
+static struct parser _NEWLINE = {word, {.word = "\n"}};
+static struct parser _SEMICOLON = {word, {.word = ";"}};
 static struct parser _FN = {word, {.word = "fn"}};
 static struct parser _RETURN = {word, {.word = "return"}};
 
@@ -563,6 +578,9 @@ any(union parser_ctx *ctx, struct source *s)
     return s;
 }
 
+static struct parser *_END_SYMBOLS[] = {&_SEMICOLON, &_NEWLINE, NULL};
+static struct parser _END = {any, {.parsers = _END_SYMBOLS}};
+
 struct source *
 many(union parser_ctx *ctx, struct source *s)
 {
@@ -606,12 +624,49 @@ _decimal_digits(union parser_ctx *ctx, struct source *s)
     return s;
 }
 
-struct source *
-decimal_number(union parser_ctx *ctx, struct source *s)
+static struct source *
+_decimal_number(union parser_ctx *ctx, struct source *s)
 {
     struct parser decimal_digits = {_decimal_digits, {.span = ctx->span}};
     union parser_ctx atom_decimal_digits = {.parser = &decimal_digits};
     return atom(&atom_decimal_digits, s);
+}
+
+struct source *
+number(union parser_ctx *ctx, struct source *s)
+{
+    return _decimal_number(ctx, s);
+}
+
+enum expr_kind { EXPR_NUM };
+union expr_data {
+    struct span num;
+};
+struct expr {
+    enum expr_kind kind;
+    union expr_data data;
+};
+
+static struct source *
+_number_expr(union parser_ctx *ctx, struct source *s)
+{
+    struct span num;
+    union parser_ctx num_ctx = {.span = &num};
+    s = number(&num_ctx, s);
+    if (!s->failed) {
+        ctx->expr->kind = EXPR_NUM;
+        ctx->expr->data.num = num;
+    }
+    return s;
+}
+
+struct source *
+expr(union parser_ctx *ctx, struct source *s)
+{
+    struct parser num = {_number_expr, {.expr = ctx->expr}};
+    struct parser *branches[] = {&num, NULL};
+    union parser_ctx any_branches = {.parsers = branches};
+    return any(&any_branches, s);
 }
 
 struct param {
@@ -657,7 +712,7 @@ fn_params(union parser_ctx *ctx, struct source *s)
 struct fn {
     struct span name;
     struct node *params;
-    struct span ret;
+    struct expr ret;
 };
 
 struct source *
@@ -665,8 +720,11 @@ fn(union parser_ctx *ctx, struct source *s)
 {
     struct parser name = {lowercase, {.span = &ctx->fn->name}};
     struct parser params = {fn_params, {.nodes = &ctx->fn->params}};
-    struct parser ret = {decimal_number, {.span = &ctx->fn->ret}};
-    struct parser *parsers[] = {&_FN, &name, &params, &_RETURN, &ret, NULL};
+    struct parser ret = {expr, {.expr = &ctx->fn->ret}};
+    struct parser *ret_end[] = {&ret, &_END, NULL};
+    struct parser all_ret_end = {all, {.parsers = ret_end}};
+    struct parser sensitive_all_ret_end = {newline_sensitive, {.parser = &all_ret_end}};
+    struct parser *parsers[] = {&_FN, &name, &params, &_RETURN, &sensitive_all_ret_end, NULL};
     union parser_ctx all_fn = {.parsers = parsers};
     return all(&all_fn, s);
 }
@@ -746,7 +804,7 @@ main(int argc, const char *argv[])
     tree_foreach(program.fn.params, iter_param);
 
     printf("name start col: %lu, end col: %lu\n", program.fn.name.start.col, program.fn.name.end.col);
-    printf("ret start col: %lu, end col: %lu\n", program.fn.ret.start.col, program.fn.ret.end.col);
+    printf("ret start col: %lu, end col: %lu\n", program.fn.ret.data.num.start.col, program.fn.ret.data.num.end.col);
     if (app_close(&app) != 0) {
         return 1;
     }
