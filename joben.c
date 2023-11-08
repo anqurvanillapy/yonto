@@ -332,7 +332,7 @@ struct span {
 struct source {
     struct loc loc;
     FILE *f;
-    int failed;
+    int failed, atom;
 };
 
 void
@@ -341,6 +341,7 @@ source_init(struct source *s, FILE *f)
     loc_init(&s->loc);
     s->f = f;
     s->failed = 0;
+    s->atom = 0;
 }
 
 size_t
@@ -431,8 +432,8 @@ union parser_ctx {
 };
 
 struct parser {
-    struct source *(*parse)(union parser_ctx *data, struct source *s);
-    union parser_ctx data;
+    struct source *(*parse)(union parser_ctx *ctx, struct source *s);
+    union parser_ctx ctx;
 };
 
 struct source *
@@ -459,6 +460,16 @@ static struct parser _SOI = {soi, {.word = NULL}};
 static struct parser _EOI = {eoi, {.word = NULL}};
 
 struct source *
+atom(union parser_ctx *ctx, struct source *s)
+{
+    int atom = s->atom;
+    s->atom = 1;
+    s = ctx->parser->parse(&ctx->parser->ctx, s);
+    s->atom = atom;
+    return s;
+}
+
+struct source *
 word(union parser_ctx *ctx, struct source *s)
 {
     const char *word = ctx->word;
@@ -475,13 +486,14 @@ word(union parser_ctx *ctx, struct source *s)
 static struct parser _LPAREN = {word, {.word = "("}};
 static struct parser _RPAREN = {word, {.word = ")"}};
 static struct parser _COMMA = {word, {.word = ","}};
+static struct parser _UNDER = {word, {.word = "_"}};
 static struct parser _FN = {word, {.word = "fn"}};
-static struct parser _ASSIGN = {word, {.word = "="}};
+static struct parser _RETURN = {word, {.word = "return"}};
 
 struct source *
 range(union parser_ctx *ctx, struct source *s)
 {
-    char from = ctx->range.to, to = ctx->range.to;
+    char from = ctx->range.from, to = ctx->range.to;
     char c = source_peek(s);
     if (c < from || c > to) {
         s->failed = 1;
@@ -490,10 +502,10 @@ range(union parser_ctx *ctx, struct source *s)
     return source_eat(s, c);
 }
 
-static struct parser _ASCII_BIN_DIGIT = {range, {.range = {'0', '1'}}};
-static struct parser _ASCII_OCT_DIGIT = {range, {.range = {'0', '7'}}};
+// static struct parser _ASCII_BIN_DIGIT = {range, {.range = {'0', '1'}}};
+// static struct parser _ASCII_OCT_DIGIT = {range, {.range = {'0', '7'}}};
 static struct parser _ASCII_DIGIT = {range, {.range = {'0', '9'}}};
-static struct parser _ASCII_NONZERO_DIGIT = {range, {.range = {'1', '9'}}};
+// static struct parser _ASCII_NONZERO_DIGIT = {range, {.range = {'1', '9'}}};
 
 struct source *
 lowercase(union parser_ctx *ctx, struct source *s)
@@ -524,12 +536,12 @@ all(union parser_ctx *ctx, struct source *s)
 {
     struct parser **parser = ctx->parsers;
     while (*parser) {
-        s = (*parser)->parse(&(*parser)->data, s);
+        s = (*parser)->parse(&(*parser)->ctx, s);
         if (s->failed) {
             return s;
         }
         parser++;
-        if (*parser) {
+        if (!s->atom && *parser) {
             s = skip_spaces(s);
         }
     }
@@ -541,7 +553,7 @@ any(union parser_ctx *ctx, struct source *s)
 {
     struct loc loc = s->loc;
     for (struct parser **parser = ctx->parsers; *parser; parser++) {
-        s = (*parser)->parse(&(*parser)->data, s);
+        s = (*parser)->parse(&(*parser)->ctx, s);
         if (!s->failed) {
             return s;
         }
@@ -556,12 +568,50 @@ many(union parser_ctx *ctx, struct source *s)
 {
     while (1) {
         struct loc loc = s->loc;
-        s = ctx->parser->parse(&ctx->parser->data, s);
+        s = ctx->parser->parse(&ctx->parser->ctx, s);
         if (s->failed) {
             return source_back(s, loc);
         }
-        s = skip_spaces(s);
+        if (!s->atom) {
+            s = skip_spaces(s);
+        }
     }
+}
+
+struct source *
+option(union parser_ctx *ctx, struct source *s)
+{
+    struct loc loc = s->loc;
+    s = ctx->parser->parse(&ctx->parser->ctx, s);
+    if (s->failed) {
+        return source_back(s, loc);
+    }
+    return s;
+}
+
+static struct source *
+_decimal_digits(union parser_ctx *ctx, struct source *s)
+{
+    struct loc loc = s->loc;
+    struct parser option_under = {option, {.parser = &_UNDER}};
+    struct parser *other_digits[] = {&option_under, &_ASCII_DIGIT, NULL};
+    struct parser all_other_digits = {all, {.parsers = other_digits}};
+    struct parser many_other_digits = {many, {.parser = &all_other_digits}};
+    struct parser *digits[] = {&_ASCII_DIGIT, &many_other_digits, NULL};
+    union parser_ctx all_digits = {.parsers = digits};
+    s = all(&all_digits, s);
+    if (!s->failed) {
+        *ctx->span = (struct span){loc, s->loc};
+    }
+    return s;
+}
+
+struct source *
+decimal_number(union parser_ctx *ctx, struct source *s)
+{
+    struct parser decimal_digits = {_decimal_digits, {.span = ctx->span}};
+    union parser_ctx atom_decimal_digits = {.parser = &decimal_digits};
+    return atom(&atom_decimal_digits, s);
 }
 
 struct param {
@@ -607,6 +657,7 @@ fn_params(union parser_ctx *ctx, struct source *s)
 struct fn {
     struct span name;
     struct node *params;
+    struct span ret;
 };
 
 struct source *
@@ -614,7 +665,8 @@ fn(union parser_ctx *ctx, struct source *s)
 {
     struct parser name = {lowercase, {.span = &ctx->fn->name}};
     struct parser params = {fn_params, {.nodes = &ctx->fn->params}};
-    struct parser *parsers[] = {&_FN, &name, &params, &_ASSIGN, NULL};
+    struct parser ret = {decimal_number, {.span = &ctx->fn->ret}};
+    struct parser *parsers[] = {&_FN, &name, &params, &_RETURN, &ret, NULL};
     union parser_ctx all_fn = {.parsers = parsers};
     return all(&all_fn, s);
 }
@@ -693,7 +745,8 @@ main(int argc, const char *argv[])
     }
     tree_foreach(program.fn.params, iter_param);
 
-    printf("name: start.col=%lu, end.col=%lu\n", program.fn.name.start.col, program.fn.name.end.col);
+    printf("name start col: %lu, end col: %lu\n", program.fn.name.start.col, program.fn.name.end.col);
+    printf("ret start col: %lu, end col: %lu\n", program.fn.ret.start.col, program.fn.ret.end.col);
     if (app_close(&app) != 0) {
         return 1;
     }
