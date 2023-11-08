@@ -74,7 +74,7 @@ struct node {
 };
 
 void
-node_init(struct node *node)
+node_default(struct node *node)
 {
     node->left = NULL;
     node->right = NULL;
@@ -208,7 +208,7 @@ struct gc {
 };
 
 void
-gc_init(struct gc *c)
+gc_default(struct gc *c)
 {
     c->stack_size = 0;
     c->reachable = 0;
@@ -297,7 +297,7 @@ struct loc {
 };
 
 void
-loc_init(struct loc *l)
+loc_default(struct loc *l)
 {
     l->pos = 0;
     l->ln = 1;
@@ -332,7 +332,7 @@ struct source {
 void
 source_init(struct source *s, FILE *f)
 {
-    loc_init(&s->loc);
+    loc_default(&s->loc);
     s->f = f;
     s->failed = 0;
     s->atom = 0;
@@ -678,7 +678,7 @@ fn_param(union parser_ctx *ctx, struct source *s)
         return s;
     }
     struct param *param = new (struct param);
-    node_init(&param->node);
+    node_default(&param->node);
     param->name = name;
     param->node.key = _next_uid();
     *ctx->nodes = tree_insert(*ctx->nodes, &param->node);
@@ -709,6 +709,12 @@ struct fn {
     struct expr ret;
 };
 
+void
+fn_default(struct fn *f)
+{
+    f->params = NULL;
+}
+
 struct source *
 fn(union parser_ctx *ctx, struct source *s)
 {
@@ -726,6 +732,12 @@ fn(union parser_ctx *ctx, struct source *s)
 struct prog {
     struct fn fn;
 };
+
+void
+prog_default(struct prog *p)
+{
+    fn_default(&p->fn);
+}
 
 struct source *
 prog(union parser_ctx *ctx, struct source *s)
@@ -808,7 +820,7 @@ main(int argc, const char *argv[])
     }
 
     struct prog program;
-    program.fn.params = NULL; // FIXME: better initialization here?
+    prog_default(&program);
     union parser_ctx prog_parser = {.fn = &program.fn};
     struct source *s = prog(&prog_parser, &app.src);
     if (s->failed) {
