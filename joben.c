@@ -51,12 +51,6 @@ allocate(size_t size)
 
 #define new(type) allocate(sizeof(type))
 
-static void
-_on_signal(int sig)
-{
-    panic(strerror(sig));
-}
-
 static volatile int _NEXT_UID = 0;
 
 static int
@@ -782,10 +776,29 @@ iter_param(struct node *node)
     printf("param: key=%d, pos=%lu\n", param->node.key, param->name.start.pos);
 }
 
+#if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) && !__has_feature(memory_sanitizer)
+static void
+_on_signal(int sig)
+{
+    panic(strerror(sig));
+}
+
+static void
+_recovery(void)
+{
+    signal(SIGSEGV, _on_signal);
+}
+#else
+static void
+_recovery(void)
+{
+}
+#endif
+
 int
 main(int argc, const char *argv[])
 {
-    signal(SIGSEGV, _on_signal);
+    _recovery();
 
     // Parsing some text.
     struct app app;
@@ -795,6 +808,7 @@ main(int argc, const char *argv[])
     }
 
     struct prog program;
+    program.fn.params = NULL; // FIXME: better initialization here?
     union parser_ctx prog_parser = {.fn = &program.fn};
     struct source *s = prog(&prog_parser, &app.src);
     if (s->failed) {
