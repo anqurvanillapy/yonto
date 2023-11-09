@@ -498,6 +498,9 @@ static struct parser _NEWLINE = {word, {.word = "\n"}};
 static struct parser _SEMICOLON = {word, {.word = ";"}};
 static struct parser _FN = {word, {.word = "fn"}};
 static struct parser _RETURN = {word, {.word = "return"}};
+static struct parser _UNIT = {word, {.word = "()"}};
+static struct parser _FALSE = {word, {.word = "false"}};
+static struct parser _TRUE = {word, {.word = "true"}};
 
 struct source *
 range(union parser_ctx *ctx, struct source *s)
@@ -632,7 +635,7 @@ number(union parser_ctx *ctx, struct source *s)
     return _decimal_number(ctx, s);
 }
 
-enum expr_kind { EXPR_NUM };
+enum expr_kind { EXPR_NUM, EXPR_UNIT, EXPR_FALSE, EXPR_TRUE };
 union expr_data {
     struct span num;
 };
@@ -654,11 +657,44 @@ _number_expr(union parser_ctx *ctx, struct source *s)
     return s;
 }
 
+static struct source *
+_unit_expr(union parser_ctx *ctx, struct source *s)
+{
+    s = _UNIT.parse(&_UNIT.ctx, s);
+    if (!s->failed) {
+        ctx->expr->kind = EXPR_UNIT;
+    }
+    return s;
+}
+
+static struct source *
+_false_expr(union parser_ctx *ctx, struct source *s)
+{
+    s = _FALSE.parse(&_FALSE.ctx, s);
+    if (!s->failed) {
+        ctx->expr->kind = EXPR_FALSE;
+    }
+    return s;
+}
+
+static struct source *
+_true_expr(union parser_ctx *ctx, struct source *s)
+{
+    s = _TRUE.parse(&_TRUE.ctx, s);
+    if (!s->failed) {
+        ctx->expr->kind = EXPR_TRUE;
+    }
+    return s;
+}
+
 struct source *
 expr(union parser_ctx *ctx, struct source *s)
 {
-    struct parser num = {_number_expr, {.expr = ctx->expr}};
-    struct parser *branches[] = {&num, NULL};
+    struct parser num_expr = {_number_expr, {.expr = ctx->expr}};
+    struct parser unit_expr = {_unit_expr, {.expr = ctx->expr}};
+    struct parser false_expr = {_false_expr, {.expr = ctx->expr}};
+    struct parser true_expr = {_true_expr, {.expr = ctx->expr}};
+    struct parser *branches[] = {&num_expr, &unit_expr, &false_expr, &true_expr, NULL};
     union parser_ctx any_branches = {.parsers = branches};
     return any(&any_branches, s);
 }
@@ -830,7 +866,7 @@ main(int argc, const char *argv[])
     tree_foreach(program.fn.params, iter_param);
 
     printf("name start col: %lu, end col: %lu\n", program.fn.name.start.col, program.fn.name.end.col);
-    printf("ret start col: %lu, end col: %lu\n", program.fn.ret.data.num.start.col, program.fn.ret.data.num.end.col);
+    printf("ret kind: %d\n", program.fn.ret.kind);
     if (app_close(&app) != 0) {
         return 1;
     }
