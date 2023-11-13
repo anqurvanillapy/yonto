@@ -494,8 +494,6 @@ static struct parser _COMMA = {word, {.word = ","}};
 static struct parser _UNDER = {word, {.word = "_"}};
 static struct parser _NEWLINE = {word, {.word = "\n"}};
 static struct parser _SEMICOLON = {word, {.word = ";"}};
-static struct parser _FN = {word, {.word = "fn"}};
-static struct parser _RETURN = {word, {.word = "return"}};
 static struct parser _UNIT = {word, {.word = "()"}};
 static struct parser _FALSE = {word, {.word = "false"}};
 static struct parser _TRUE = {word, {.word = "true"}};
@@ -765,7 +763,7 @@ fn(union parser_ctx *ctx, struct source *s)
     struct parser *ret_end[] = {&ret, &_END, NULL};
     struct parser all_ret_end = {all, {.parsers = ret_end}};
     struct parser sensitive_all_ret_end = {newline_sensitive, {.parser = &all_ret_end}};
-    struct parser *parsers[] = {&_FN, &name, &params, &_RETURN, &sensitive_all_ret_end, NULL};
+    struct parser *parsers[] = {&name, &params, &sensitive_all_ret_end, NULL};
     union parser_ctx fn_ctx = {.parsers = parsers};
     s = all(&fn_ctx, s);
     if (!s->failed) {
