@@ -408,8 +408,7 @@ skip_spaces(struct source *s)
 
 struct parser;
 struct expr;
-struct fn;
-struct prog;
+struct def;
 
 struct range {
     char from, to;
@@ -424,8 +423,7 @@ union parser_ctx {
     struct span *span;
     struct node **nodes;
     struct expr *expr;
-    struct fn *fn;
-    struct prog *prog;
+    struct def *def;
 };
 
 struct parser {
@@ -645,7 +643,7 @@ struct expr {
 };
 
 static struct source *
-_number_expr(union parser_ctx *ctx, struct source *s)
+_expr_number(union parser_ctx *ctx, struct source *s)
 {
     struct span num;
     union parser_ctx num_ctx = {.span = &num};
@@ -658,7 +656,7 @@ _number_expr(union parser_ctx *ctx, struct source *s)
 }
 
 static struct source *
-_unit_expr(union parser_ctx *ctx, struct source *s)
+_expr_unit(union parser_ctx *ctx, struct source *s)
 {
     s = _UNIT.parse(&_UNIT.ctx, s);
     if (!s->failed) {
@@ -668,7 +666,7 @@ _unit_expr(union parser_ctx *ctx, struct source *s)
 }
 
 static struct source *
-_false_expr(union parser_ctx *ctx, struct source *s)
+_expr_false(union parser_ctx *ctx, struct source *s)
 {
     s = _FALSE.parse(&_FALSE.ctx, s);
     if (!s->failed) {
@@ -678,7 +676,7 @@ _false_expr(union parser_ctx *ctx, struct source *s)
 }
 
 static struct source *
-_true_expr(union parser_ctx *ctx, struct source *s)
+_expr_true(union parser_ctx *ctx, struct source *s)
 {
     s = _TRUE.parse(&_TRUE.ctx, s);
     if (!s->failed) {
@@ -690,22 +688,27 @@ _true_expr(union parser_ctx *ctx, struct source *s)
 struct source *
 expr(union parser_ctx *ctx, struct source *s)
 {
-    struct parser num_expr = {_number_expr, {.expr = ctx->expr}};
-    struct parser unit_expr = {_unit_expr, {.expr = ctx->expr}};
-    struct parser false_expr = {_false_expr, {.expr = ctx->expr}};
-    struct parser true_expr = {_true_expr, {.expr = ctx->expr}};
-    struct parser *branches[] = {&num_expr, &unit_expr, &false_expr, &true_expr, NULL};
+    struct parser expr_num = {_expr_number, {.expr = ctx->expr}};
+    struct parser expr_unit = {_expr_unit, {.expr = ctx->expr}};
+    struct parser expr_false = {_expr_false, {.expr = ctx->expr}};
+    struct parser expr_true = {_expr_true, {.expr = ctx->expr}};
+    struct parser *branches[] = {&expr_num, &expr_unit, &expr_false, &expr_true, NULL};
     union parser_ctx any_branches = {.parsers = branches};
     return any(&any_branches, s);
 }
 
+struct fn_body {
+    struct expr ret;
+};
+
 struct param {
-    struct node node;
+    struct node as_node;
+
     struct span name;
 };
 
 struct source *
-fn_param(union parser_ctx *ctx, struct source *s)
+def_param(union parser_ctx *ctx, struct source *s)
 {
     struct span name;
     union parser_ctx name_parser = {.span = &name};
@@ -714,20 +717,20 @@ fn_param(union parser_ctx *ctx, struct source *s)
         return s;
     }
     struct param *param = new (struct param);
-    node_default(&param->node);
+    node_default(&param->as_node);
     param->name = name;
-    param->node.key = _next_uid();
-    *ctx->nodes = tree_insert(*ctx->nodes, &param->node);
+    param->as_node.key = _next_uid();
+    *ctx->nodes = tree_insert(*ctx->nodes, &param->as_node);
     return s;
 }
 
 struct source *
-fn_params(union parser_ctx *ctx, struct source *s)
+def_params(union parser_ctx *ctx, struct source *s)
 {
     struct parser *no_params[] = {&_LPAREN, &_RPAREN, NULL};
     struct parser all_no_params = {all, {.parsers = no_params}};
 
-    struct parser one_param = {fn_param, {.nodes = ctx->nodes}};
+    struct parser one_param = {def_param, {.nodes = ctx->nodes}};
     struct parser *other_params[] = {&_COMMA, &one_param, NULL};
     struct parser all_other_params = {all, {.parsers = other_params}};
     struct parser many_other_params = {many, {.parser = &all_other_params}};
@@ -739,48 +742,80 @@ fn_params(union parser_ctx *ctx, struct source *s)
     return any(&any_branches, s);
 }
 
-struct fn {
-    struct span name;
-    struct node *params;
-    struct expr ret;
+enum body_kind { BODY_FN };
+union body {
+    struct fn_body fn;
 };
 
-void
-fn_default(struct fn *f)
-{
-    f->params = NULL;
-}
+struct def {
+    struct node as_node;
 
-struct source *
+    struct span name;
+    struct node *params;
+    enum body_kind kind;
+    union body body;
+};
+
+static struct source *
 fn(union parser_ctx *ctx, struct source *s)
 {
-    struct parser name = {lowercase, {.span = &ctx->fn->name}};
-    struct parser params = {fn_params, {.nodes = &ctx->fn->params}};
-    struct parser ret = {expr, {.expr = &ctx->fn->ret}};
+    struct parser name = {lowercase, {.span = &ctx->def->name}};
+    struct parser params = {def_params, {.nodes = &ctx->def->params}};
+    struct parser ret = {expr, {.expr = &ctx->def->body.fn.ret}};
     struct parser *ret_end[] = {&ret, &_END, NULL};
     struct parser all_ret_end = {all, {.parsers = ret_end}};
     struct parser sensitive_all_ret_end = {newline_sensitive, {.parser = &all_ret_end}};
     struct parser *parsers[] = {&_FN, &name, &params, &_RETURN, &sensitive_all_ret_end, NULL};
-    union parser_ctx all_fn = {.parsers = parsers};
-    return all(&all_fn, s);
+    union parser_ctx fn_ctx = {.parsers = parsers};
+    s = all(&fn_ctx, s);
+    if (!s->failed) {
+        ctx->def->kind = BODY_FN;
+    }
+    return s;
+}
+
+void
+def_default(struct def *d)
+{
+    d->params = NULL;
+}
+
+struct source *
+def(union parser_ctx *ctx, struct source *s)
+{
+    struct def *d = new (struct def);
+    def_default(d);
+
+    struct parser def_fn = {fn, {.def = d}};
+
+    struct parser *branches[] = {&def_fn, NULL};
+    union parser_ctx def_ctx = {.parsers = branches};
+    s = any(&def_ctx, s);
+    if (s->failed) {
+        free(d);
+        return s;
+    }
+    d->as_node.key = _next_uid();
+    *ctx->nodes = tree_insert(*ctx->nodes, &d->as_node);
+    return s;
 }
 
 struct prog {
-    struct fn fn;
+    struct node *defs;
 };
 
 void
 prog_default(struct prog *p)
 {
-    fn_default(&p->fn);
+    p->defs = NULL;
 }
 
 struct source *
 prog(union parser_ctx *ctx, struct source *s)
 {
-    struct parser fn_parser = {fn, {.fn = ctx->fn}};
-    // TODO: Many function definitions.
-    struct parser *parsers[] = {&_SOI, &fn_parser, &_EOI, NULL};
+    struct parser one_def = {def, {.nodes = ctx->nodes}};
+    struct parser many_defs = {many, {.parser = &one_def}};
+    struct parser *parsers[] = {&_SOI, &many_defs, &_EOI, NULL};
     union parser_ctx all_parsers = {.parsers = parsers};
     return all(&all_parsers, s);
 }
@@ -818,10 +853,18 @@ app_close(struct app *app)
 }
 
 static void
-iter_param(struct node *node)
+_iter_param(struct node *node)
 {
     struct param *param = (struct param *)node;
-    printf("param: key=%d, pos=%lu\n", param->node.key, param->name.start.pos);
+    printf("param: key=%d, pos=%lu\n", param->as_node.key, param->name.start.pos);
+}
+
+static void
+_iter_def(struct node *node)
+{
+    struct def *d = (struct def *)node;
+    printf("def: key=%d, pos=%lu, kind=%d\n", d->as_node.key, d->name.start.pos, d->kind);
+    tree_foreach(d->params, _iter_param);
 }
 
 #if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) && !__has_feature(memory_sanitizer)
@@ -857,16 +900,14 @@ main(int argc, const char *argv[])
 
     struct prog program;
     prog_default(&program);
-    union parser_ctx prog_parser = {.fn = &program.fn};
+
+    union parser_ctx prog_parser = {.nodes = &program.defs};
     struct source *s = prog(&prog_parser, &app.src);
     if (s->failed) {
         printf("parse error: pos=%lu\n", s->loc.pos);
         return 1;
     }
-    tree_foreach(program.fn.params, iter_param);
-
-    printf("name start col: %lu, end col: %lu\n", program.fn.name.start.col, program.fn.name.end.col);
-    printf("ret kind: %d\n", program.fn.ret.kind);
+    tree_foreach(program.defs, _iter_def);
     if (app_close(&app) != 0) {
         return 1;
     }
