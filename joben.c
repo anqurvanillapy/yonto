@@ -494,6 +494,7 @@ static struct parser _COMMA = {word, {.word = ","}};
 static struct parser _UNDER = {word, {.word = "_"}};
 static struct parser _NEWLINE = {word, {.word = "\n"}};
 static struct parser _SEMICOLON = {word, {.word = ";"}};
+static struct parser _ASSIGN = {word, {.word = "="}};
 static struct parser _UNIT = {word, {.word = "()"}};
 static struct parser _FALSE = {word, {.word = "false"}};
 static struct parser _TRUE = {word, {.word = "true"}};
@@ -695,10 +696,6 @@ expr(union parser_ctx *ctx, struct source *s)
     return any(&any_branches, s);
 }
 
-struct fn_body {
-    struct expr ret;
-};
-
 struct param {
     struct node as_node;
 
@@ -740,9 +737,9 @@ def_params(union parser_ctx *ctx, struct source *s)
     return any(&any_branches, s);
 }
 
-enum body_kind { BODY_FN };
+enum body_kind { BODY_FN, BODY_VAL };
 union body {
-    struct fn_body fn;
+    struct expr ret;
 };
 
 struct def {
@@ -754,12 +751,12 @@ struct def {
     union body body;
 };
 
-static struct source *
+struct source *
 fn(union parser_ctx *ctx, struct source *s)
 {
     struct parser name = {lowercase, {.span = &ctx->def->name}};
     struct parser params = {def_params, {.nodes = &ctx->def->params}};
-    struct parser ret = {expr, {.expr = &ctx->def->body.fn.ret}};
+    struct parser ret = {expr, {.expr = &ctx->def->body.ret}};
     struct parser *ret_end[] = {&ret, &_END, NULL};
     struct parser all_ret_end = {all, {.parsers = ret_end}};
     struct parser sensitive_all_ret_end = {newline_sensitive, {.parser = &all_ret_end}};
@@ -768,6 +765,23 @@ fn(union parser_ctx *ctx, struct source *s)
     s = all(&fn_ctx, s);
     if (!s->failed) {
         ctx->def->kind = BODY_FN;
+    }
+    return s;
+}
+
+struct source *
+val(union parser_ctx *ctx, struct source *s)
+{
+    struct parser name = {lowercase, {.span = &ctx->def->name}};
+    struct parser ret = {expr, {.expr = &ctx->def->body.ret}};
+    struct parser *ret_end[] = {&ret, &_END, NULL};
+    struct parser all_ret_end = {all, {.parsers = ret_end}};
+    struct parser sensitive_all_ret_end = {newline_sensitive, {.parser = &all_ret_end}};
+    struct parser *parsers[] = {&name, &_ASSIGN, &sensitive_all_ret_end, NULL};
+    union parser_ctx fn_ctx = {.parsers = parsers};
+    s = all(&fn_ctx, s);
+    if (!s->failed) {
+        ctx->def->kind = BODY_VAL;
     }
     return s;
 }
@@ -786,8 +800,9 @@ def(union parser_ctx *ctx, struct source *s)
     def_default(d);
 
     struct parser def_fn = {fn, {.def = d}};
+    struct parser def_val = {val, {.def = d}};
 
-    struct parser *branches[] = {&def_fn, NULL};
+    struct parser *branches[] = {&def_fn, &def_val, NULL};
     union parser_ctx def_ctx = {.parsers = branches};
     s = any(&def_ctx, s);
     if (s->failed) {
@@ -903,7 +918,7 @@ main(int argc, const char *argv[])
     union parser_ctx prog_parser = {.nodes = &program.defs};
     struct source *s = prog(&prog_parser, &app.src);
     if (s->failed) {
-        printf("parse error: pos=%lu\n", s->loc.pos);
+        printf("%s:%lu:%lu: parse error\n", app.filename, s->loc.ln, s->loc.col);
         return 1;
     }
     tree_foreach(program.defs, _iter_def);
