@@ -662,8 +662,8 @@ struct source *val(union parser_ctx *ctx, struct source *s) {
   struct parser sensitive_all_ret_end = {newline_sensitive,
                                          {.parser = &all_ret_end}};
   struct parser *parsers[] = {&name, &_ASSIGN, &sensitive_all_ret_end, NULL};
-  union parser_ctx fn_ctx = {.parsers = parsers};
-  s = all(&fn_ctx, s);
+  union parser_ctx val_ctx = {.parsers = parsers};
+  s = all(&val_ctx, s);
   if (!s->failed) {
     ctx->def->kind = BODY_VAL;
   }
