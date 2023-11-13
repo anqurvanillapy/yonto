@@ -777,6 +777,7 @@ fn(union parser_ctx *ctx, struct source *s)
 void
 def_default(struct def *d)
 {
+    node_default(&d->as_node);
     d->params = NULL;
 }
 
