@@ -530,14 +530,17 @@ struct source *number(union parser_ctx *ctx, struct source *s) {
   return _decimal_number(ctx, s);
 }
 
-enum expr_kind { EXPR_NUM = 1, EXPR_UNIT, EXPR_FALSE, EXPR_TRUE };
+enum expr_kind { EXPR_NUM = 1, EXPR_UNIT, EXPR_FALSE, EXPR_TRUE, EXPR_PAREN };
 union expr_data {
   struct span num;
+  struct expr *expr;
 };
 struct expr {
   enum expr_kind kind;
   union expr_data data;
 };
+
+struct source *expr(union parser_ctx *ctx, struct source *s);
 
 static struct source *_expr_number(union parser_ctx *ctx, struct source *s) {
   struct span num;
@@ -574,13 +577,21 @@ static struct source *_expr_true(union parser_ctx *ctx, struct source *s) {
   return s;
 }
 
+static struct source *_expr_paren(union parser_ctx *ctx, struct source *s) {
+  struct parser e = {expr, {.expr = ctx->expr}};
+  struct parser *paren_expr[] = {&_LPAREN, &e, &_RPAREN, NULL};
+  union parser_ctx paren_ctx = {.parsers = paren_expr};
+  return all(&paren_ctx, s);
+}
+
 struct source *expr(union parser_ctx *ctx, struct source *s) {
   struct parser expr_num = {_expr_number, {.expr = ctx->expr}};
   struct parser expr_unit = {_expr_unit, {.expr = ctx->expr}};
   struct parser expr_false = {_expr_false, {.expr = ctx->expr}};
   struct parser expr_true = {_expr_true, {.expr = ctx->expr}};
-  struct parser *branches[] = {&expr_num, &expr_unit, &expr_false, &expr_true,
-                               NULL};
+  struct parser expr_paren = {_expr_paren, {.expr = ctx->expr}};
+  struct parser *branches[] = {&expr_num,  &expr_unit,  &expr_false,
+                               &expr_true, &expr_paren, NULL};
   union parser_ctx any_branches = {.parsers = branches};
   return any(&any_branches, s);
 }
