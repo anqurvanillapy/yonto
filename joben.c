@@ -376,10 +376,10 @@ struct source *eoi(union parser_ctx *ctx, struct source *s) {
 static struct parser _SOI = {soi, {.word = NULL}};
 static struct parser _EOI = {eoi, {.word = NULL}};
 
-struct source *atom(union parser_ctx *ctx, struct source *s) {
+struct source *parse_atom(struct parser *parser, struct source *s) {
   int atom = s->atom;
   s->atom = 1;
-  s = ctx->parser->parse(&ctx->parser->ctx, s);
+  s = parser->parse(&parser->ctx, s);
   s->atom = atom;
   return s;
 }
@@ -431,7 +431,7 @@ struct source *range(union parser_ctx *ctx, struct source *s) {
 static struct parser _ASCII_DIGIT = {range, {.range = {'0', '9'}}};
 // static struct parser _ASCII_NONZERO_DIGIT = {range, {.range = {'1', '9'}}};
 
-struct source *lowercase(union parser_ctx *ctx, struct source *s) {
+struct source *parse_lowercase(struct span *span, struct source *s) {
   struct loc start = s->loc;
 
   char first = source_peek(s);
@@ -449,12 +449,16 @@ struct source *lowercase(union parser_ctx *ctx, struct source *s) {
     s = source_eat(s, c);
   }
 
-  *ctx->span = (struct span){start, s->loc};
+  *span = (struct span){start, s->loc};
   return s;
 }
 
-struct source *all(union parser_ctx *ctx, struct source *s) {
-  struct parser **parser = ctx->parsers;
+struct source *lowercase(union parser_ctx *ctx, struct source *s) {
+  return parse_lowercase(ctx->span, s);
+}
+
+struct source *parse_all(struct parser **parsers, struct source *s) {
+  struct parser **parser = parsers;
   while (*parser) {
     s = (*parser)->parse(&(*parser)->ctx, s);
     if (s->failed) {
@@ -468,9 +472,13 @@ struct source *all(union parser_ctx *ctx, struct source *s) {
   return s;
 }
 
-struct source *any(union parser_ctx *ctx, struct source *s) {
+struct source *all(union parser_ctx *ctx, struct source *s) {
+  return parse_all(ctx->parsers, s);
+}
+
+struct source *parse_any(struct parser **parsers, struct source *s) {
   struct loc loc = s->loc;
-  for (struct parser **parser = ctx->parsers; *parser; parser++) {
+  for (struct parser **parser = parsers; *parser; parser++) {
     s = (*parser)->parse(&(*parser)->ctx, s);
     if (!s->failed) {
       return s;
@@ -479,6 +487,10 @@ struct source *any(union parser_ctx *ctx, struct source *s) {
   }
   s->failed = 1;
   return s;
+}
+
+struct source *any(union parser_ctx *ctx, struct source *s) {
+  return parse_any(ctx->parsers, s);
 }
 
 static struct parser *_END_SYMBOLS[] = {&_SEMICOLON, &_NEWLINE, NULL};
@@ -513,8 +525,7 @@ static struct source *_decimal_digits(union parser_ctx *ctx, struct source *s) {
   struct parser all_other_digits = {all, {.parsers = other_digits}};
   struct parser many_other_digits = {many, {.parser = &all_other_digits}};
   struct parser *digits[] = {&_ASCII_DIGIT, &many_other_digits, NULL};
-  union parser_ctx all_digits = {.parsers = digits};
-  s = all(&all_digits, s);
+  s = parse_all(digits, s);
   if (!s->failed) {
     *ctx->span = (struct span){loc, s->loc};
   }
@@ -523,8 +534,7 @@ static struct source *_decimal_digits(union parser_ctx *ctx, struct source *s) {
 
 static struct source *_decimal_number(union parser_ctx *ctx, struct source *s) {
   struct parser decimal_digits = {_decimal_digits, {.span = ctx->span}};
-  union parser_ctx atom_decimal_digits = {.parser = &decimal_digits};
-  return atom(&atom_decimal_digits, s);
+  return parse_atom(&decimal_digits, s);
 }
 
 struct source *number(union parser_ctx *ctx, struct source *s) {
@@ -559,8 +569,7 @@ struct param {
 
 struct source *param(union parser_ctx *ctx, struct source *s) {
   struct span name;
-  union parser_ctx name_parser = {.span = &name};
-  s = lowercase(&name_parser, s);
+  s = parse_lowercase(&name, s);
   if (s->failed) {
     return s;
   }
@@ -585,8 +594,7 @@ struct source *params(union parser_ctx *ctx, struct source *s) {
   struct parser all_multi_params = {all, {.parsers = multi_params}};
 
   struct parser *branches[] = {&all_no_params, &all_multi_params, NULL};
-  union parser_ctx any_branches = {.parsers = branches};
-  return any(&any_branches, s);
+  return parse_any(branches, s);
 }
 
 struct lambda {
@@ -601,9 +609,8 @@ static struct source *_expr_lambda(union parser_ctx *ctx, struct source *s) {
   lambda_default(lam);
   struct parser ps = {params, {.nodes = &lam->params}};
   struct parser body = {expr, {.expr = &lam->body}};
-  struct parser *lam_parsers[] = {&ps, &_ARROW, &body, NULL};
-  union parser_ctx lam_ctx = {.parsers = lam_parsers};
-  s = all(&lam_ctx, s);
+  struct parser *parsers[] = {&ps, &_ARROW, &body, NULL};
+  s = parse_all(parsers, s);
   if (s->failed) {
     free(lam);
     return s;
@@ -650,9 +657,8 @@ static struct source *_expr_true(union parser_ctx *ctx, struct source *s) {
 
 static struct source *_expr_paren(union parser_ctx *ctx, struct source *s) {
   struct parser e = {expr, {.expr = ctx->expr}};
-  struct parser *paren_expr[] = {&_LPAREN, &e, &_RPAREN, NULL};
-  union parser_ctx paren_ctx = {.parsers = paren_expr};
-  return all(&paren_ctx, s);
+  struct parser *parsers[] = {&_LPAREN, &e, &_RPAREN, NULL};
+  return parse_all(parsers, s);
 }
 
 struct source *expr(union parser_ctx *ctx, struct source *s) {
@@ -664,8 +670,7 @@ struct source *expr(union parser_ctx *ctx, struct source *s) {
   struct parser expr_paren = {_expr_paren, {.expr = ctx->expr}};
   struct parser *branches[] = {&expr_lam,  &expr_num,   &expr_unit, &expr_false,
                                &expr_true, &expr_paren, NULL};
-  union parser_ctx any_branches = {.parsers = branches};
-  return any(&any_branches, s);
+  return parse_any(branches, s);
 }
 
 enum body_kind { BODY_FN = 1, BODY_VAL };
@@ -691,8 +696,7 @@ struct source *fn(union parser_ctx *ctx, struct source *s) {
   struct parser sensitive_all_ret_end = {newline_sensitive,
                                          {.parser = &all_ret_end}};
   struct parser *parsers[] = {&name, &ps, &sensitive_all_ret_end, NULL};
-  union parser_ctx fn_ctx = {.parsers = parsers};
-  s = all(&fn_ctx, s);
+  s = parse_all(parsers, s);
   if (!s->failed) {
     ctx->def->kind = BODY_FN;
   }
@@ -707,8 +711,7 @@ struct source *val(union parser_ctx *ctx, struct source *s) {
   struct parser sensitive_all_ret_end = {newline_sensitive,
                                          {.parser = &all_ret_end}};
   struct parser *parsers[] = {&name, &_ASSIGN, &sensitive_all_ret_end, NULL};
-  union parser_ctx val_ctx = {.parsers = parsers};
-  s = all(&val_ctx, s);
+  s = parse_all(parsers, s);
   if (!s->failed) {
     ctx->def->kind = BODY_VAL;
   }
@@ -728,8 +731,7 @@ struct source *def(union parser_ctx *ctx, struct source *s) {
   struct parser def_val = {val, {.def = d}};
 
   struct parser *branches[] = {&def_fn, &def_val, NULL};
-  union parser_ctx def_ctx = {.parsers = branches};
-  s = any(&def_ctx, s);
+  s = parse_any(branches, s);
   if (s->failed) {
     free(d);
     return s;
@@ -745,12 +747,11 @@ struct prog {
 
 void prog_default(struct prog *p) { p->defs = NULL; }
 
-struct source *prog(union parser_ctx *ctx, struct source *s) {
-  struct parser one_def = {def, {.nodes = ctx->nodes}};
+struct source *parse_prog(struct node **defs, struct source *s) {
+  struct parser one_def = {def, {.nodes = defs}};
   struct parser many_defs = {many, {.parser = &one_def}};
   struct parser *parsers[] = {&_SOI, &many_defs, &_EOI, NULL};
-  union parser_ctx all_parsers = {.parsers = parsers};
-  return all(&all_parsers, s);
+  return parse_all(parsers, s);
 }
 
 struct app {
@@ -813,9 +814,7 @@ int main(int argc, const char *argv[]) {
 
   struct prog program;
   prog_default(&program);
-
-  union parser_ctx prog_parser = {.nodes = &program.defs};
-  struct source *s = prog(&prog_parser, &app.src);
+  struct source *s = parse_prog(&program.defs, &app.src);
   if (s->failed) {
     printf("%s:%lu:%lu: parse error (pos=%lu)\n", app.filename, s->loc.ln,
            s->loc.col, s->loc.pos);
