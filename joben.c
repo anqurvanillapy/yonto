@@ -222,7 +222,7 @@ static void _map_rehash(struct map *m) {
   m->cap = new_capacity;
 }
 
-void map_set(struct map *m, const char *key, size_t key_size, void *val) {
+void *map_set(struct map *m, const char *key, size_t key_size, void *val) {
   if ((double)m->size / (double)m->cap >= 1.0) {
     _map_rehash(m);
   }
@@ -231,18 +231,20 @@ void map_set(struct map *m, const char *key, size_t key_size, void *val) {
   struct entry *e = m->buckets[index];
   while (e) {
     if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+      void *prev = e->val;
       e->val = val;
-      return;
+      return prev;
     }
     e = e->next;
   }
-
-  struct entry *entry = new (struct entry);
-  entry->key = key;
-  entry->val = val;
-  entry->next = m->buckets[index];
-  m->buckets[index] = entry;
+  e = new (struct entry);
+  e->key = key;
+  e->key_size = key_size;
+  e->val = val;
+  e->next = m->buckets[index];
+  m->buckets[index] = e;
   m->size++;
+  return NULL;
 }
 
 void *map_get(struct map *m, const char *key, size_t key_size) {
