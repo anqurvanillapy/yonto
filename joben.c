@@ -384,14 +384,6 @@ struct source *parse_atom(struct parser *parser, struct source *s) {
   return s;
 }
 
-struct source *newline_sensitive(union parser_ctx *ctx, struct source *s) {
-  int newline_sensitive = s->newline_sensitive;
-  s->newline_sensitive = 1;
-  s = ctx->parser->parse(&ctx->parser->ctx, s);
-  s->newline_sensitive = newline_sensitive;
-  return s;
-}
-
 struct source *word(union parser_ctx *ctx, struct source *s) {
   const char *word = ctx->word;
   size_t i = 0;
@@ -498,6 +490,15 @@ struct source *any(union parser_ctx *ctx, struct source *s) {
 
 static struct parser *_END_SYMBOLS[] = {&_SEMICOLON, &_NEWLINE, NULL};
 static struct parser _END = {any, {.parsers = _END_SYMBOLS}};
+
+struct source *parse_end(struct source *s) {
+  int newline_sensitive = s->newline_sensitive;
+  s->newline_sensitive = 1;
+  s = skip_spaces(s);
+  s = _END.parse(&_END.ctx, s);
+  s->newline_sensitive = newline_sensitive;
+  return s;
+}
 
 struct source *many(union parser_ctx *ctx, struct source *s) {
   while (1) {
@@ -730,12 +731,12 @@ struct source *fn(union parser_ctx *ctx, struct source *s) {
   struct parser name = {lowercase, {.span = &ctx->def->name}};
   struct parser ps = {params, {.nodes = &ctx->def->params}};
   struct parser ret = {expr, {.expr = &ctx->def->body.ret}};
-  struct parser *ret_end[] = {&ret, &_END, NULL};
-  struct parser all_ret_end = {all, {.parsers = ret_end}};
-  struct parser sensitive_all_ret_end = {newline_sensitive,
-                                         {.parser = &all_ret_end}};
-  struct parser *parsers[] = {&name, &ps, &sensitive_all_ret_end, NULL};
+  struct parser *parsers[] = {&name, &ps, &ret, NULL};
   s = parse_all(parsers, s);
+  if (s->failed) {
+    return s;
+  }
+  s = parse_end(s);
   if (!s->failed) {
     ctx->def->kind = BODY_FN;
   }
@@ -745,12 +746,12 @@ struct source *fn(union parser_ctx *ctx, struct source *s) {
 struct source *val(union parser_ctx *ctx, struct source *s) {
   struct parser name = {lowercase, {.span = &ctx->def->name}};
   struct parser ret = {expr, {.expr = &ctx->def->body.ret}};
-  struct parser *ret_end[] = {&ret, &_END, NULL};
-  struct parser all_ret_end = {all, {.parsers = ret_end}};
-  struct parser sensitive_all_ret_end = {newline_sensitive,
-                                         {.parser = &all_ret_end}};
-  struct parser *parsers[] = {&name, &_ASSIGN, &sensitive_all_ret_end, NULL};
+  struct parser *parsers[] = {&name, &_ASSIGN, &ret, NULL};
   s = parse_all(parsers, s);
+  if (s->failed) {
+    return s;
+  }
+  s = parse_end(s);
   if (!s->failed) {
     ctx->def->kind = BODY_VAL;
   }
