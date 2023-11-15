@@ -411,6 +411,9 @@ static struct parser _UNDER = {word, {.word = "_"}};
 static struct parser _NEWLINE = {word, {.word = "\n"}};
 static struct parser _SEMICOLON = {word, {.word = ";"}};
 static struct parser _ASSIGN = {word, {.word = "="}};
+static struct parser _IF = {word, {.word = "if"}};
+static struct parser _THEN = {word, {.word = "then"}};
+static struct parser _ELSE = {word, {.word = "else"}};
 static struct parser _ARROW = {word, {.word = "=>"}};
 static struct parser _UNIT = {word, {.word = "()"}};
 static struct parser _FALSE = {word, {.word = "false"}};
@@ -518,31 +521,9 @@ struct source *option(union parser_ctx *ctx, struct source *s) {
   return s;
 }
 
-static struct source *_decimal_digits(union parser_ctx *ctx, struct source *s) {
-  struct loc loc = s->loc;
-  struct parser option_under = {option, {.parser = &_UNDER}};
-  struct parser *other_digits[] = {&option_under, &_ASCII_DIGIT, NULL};
-  struct parser all_other_digits = {all, {.parsers = other_digits}};
-  struct parser many_other_digits = {many, {.parser = &all_other_digits}};
-  struct parser *digits[] = {&_ASCII_DIGIT, &many_other_digits, NULL};
-  s = parse_all(digits, s);
-  if (!s->failed) {
-    *ctx->span = (struct span){loc, s->loc};
-  }
-  return s;
-}
-
-static struct source *_decimal_number(union parser_ctx *ctx, struct source *s) {
-  struct parser decimal_digits = {_decimal_digits, {.span = ctx->span}};
-  return parse_atom(&decimal_digits, s);
-}
-
-struct source *number(union parser_ctx *ctx, struct source *s) {
-  return _decimal_number(ctx, s);
-}
-
 enum expr_kind {
-  EXPR_LAM = 1,
+  EXPR_ITE = 1,
+  EXPR_LAM,
   EXPR_NUM,
   EXPR_UNIT,
   EXPR_FALSE,
@@ -554,6 +535,7 @@ union expr_data {
   struct span span;
   struct expr *expr;
   struct lambda *lam;
+  struct ite *ite;
 };
 struct expr {
   enum expr_kind kind;
@@ -561,6 +543,26 @@ struct expr {
 };
 
 struct source *expr(union parser_ctx *ctx, struct source *s);
+
+struct ite {
+  struct expr i, t, e;
+};
+
+static struct source *_expr_ite(union parser_ctx *ctx, struct source *s) {
+  struct ite *ite = new (struct ite);
+  struct parser i = {expr, {.expr = &ite->i}};
+  struct parser t = {expr, {.expr = &ite->t}};
+  struct parser e = {expr, {.expr = &ite->e}};
+  struct parser *parsers[] = {&_IF, &i, &_THEN, &t, &_ELSE, &e, NULL};
+  s = parse_all(parsers, s);
+  if (s->failed) {
+    free(ite);
+    return s;
+  }
+  ctx->expr->kind = EXPR_ITE;
+  ctx->expr->data.ite = ite;
+  return s;
+}
 
 struct param {
   struct node as_node;
@@ -621,6 +623,29 @@ static struct source *_expr_lambda(union parser_ctx *ctx, struct source *s) {
   return s;
 }
 
+static struct source *_decimal_digits(union parser_ctx *ctx, struct source *s) {
+  struct loc loc = s->loc;
+  struct parser option_under = {option, {.parser = &_UNDER}};
+  struct parser *other_digits[] = {&option_under, &_ASCII_DIGIT, NULL};
+  struct parser all_other_digits = {all, {.parsers = other_digits}};
+  struct parser many_other_digits = {many, {.parser = &all_other_digits}};
+  struct parser *digits[] = {&_ASCII_DIGIT, &many_other_digits, NULL};
+  s = parse_all(digits, s);
+  if (!s->failed) {
+    *ctx->span = (struct span){loc, s->loc};
+  }
+  return s;
+}
+
+static struct source *_decimal_number(union parser_ctx *ctx, struct source *s) {
+  struct parser decimal_digits = {_decimal_digits, {.span = ctx->span}};
+  return parse_atom(&decimal_digits, s);
+}
+
+struct source *number(union parser_ctx *ctx, struct source *s) {
+  return _decimal_number(ctx, s);
+}
+
 static struct source *_expr_number(union parser_ctx *ctx, struct source *s) {
   struct span num;
   union parser_ctx num_ctx = {.span = &num};
@@ -673,6 +698,7 @@ static struct source *_expr_paren(union parser_ctx *ctx, struct source *s) {
 }
 
 struct source *expr(union parser_ctx *ctx, struct source *s) {
+  struct parser expr_ite = {_expr_ite, {.expr = ctx->expr}};
   struct parser expr_lam = {_expr_lambda, {.expr = ctx->expr}};
   struct parser expr_num = {_expr_number, {.expr = ctx->expr}};
   struct parser expr_unit = {_expr_unit, {.expr = ctx->expr}};
@@ -680,8 +706,9 @@ struct source *expr(union parser_ctx *ctx, struct source *s) {
   struct parser expr_true = {_expr_true, {.expr = ctx->expr}};
   struct parser expr_ref = {_expr_ref, {.expr = ctx->expr}};
   struct parser expr_paren = {_expr_paren, {.expr = ctx->expr}};
-  struct parser *branches[] = {&expr_lam,  &expr_num, &expr_unit,  &expr_false,
-                               &expr_true, &expr_ref, &expr_paren, NULL};
+  struct parser *branches[] = {&expr_ite,  &expr_lam,   &expr_num,
+                               &expr_unit, &expr_false, &expr_true,
+                               &expr_ref,  &expr_paren, NULL};
   return parse_any(branches, s);
 }
 
