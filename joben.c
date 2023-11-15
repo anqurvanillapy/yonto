@@ -39,7 +39,17 @@ void *allocate(size_t size) {
   return NULL;
 }
 
+void *allocate_count(size_t size, size_t count) {
+  void *ret = calloc(count, size);
+  if (ret) {
+    return ret;
+  }
+  panic("out of memory");
+  return NULL;
+}
+
 #define new(type) allocate(sizeof(type))
+#define make(type, count) allocate_count(sizeof(type), count)
 
 static volatile int _NEXT_UID = 0;
 
@@ -145,6 +155,7 @@ struct elem {
 
 void elem_default(struct elem *e) { e->next = NULL; }
 
+// FIXME: Use vectors instead.
 struct list {
   struct elem *head;
   struct elem *tail;
@@ -163,6 +174,119 @@ void list_insert(struct list *l, struct elem *e) {
   }
   l->tail->next = e;
   l->tail = e;
+}
+
+struct entry {
+  struct entry *next;
+  const char *key;
+  size_t key_size;
+  void *val;
+};
+
+struct map {
+  struct entry **buckets;
+  size_t size, cap;
+};
+
+void map_default(struct map *m) {
+  m->buckets = make(struct entry *, m->cap);
+  m->size = 0;
+  m->cap = 8;
+}
+
+static size_t _hash(const char *key, size_t key_size, size_t cap) {
+  size_t hash = 0;
+  for (size_t i = 0; i < key_size; i++) {
+    hash = hash * 31 + (size_t)key[i];
+  }
+  return hash % cap;
+}
+
+static void _map_rehash(struct map *m) {
+  size_t new_capacity = m->cap * 2;
+  struct entry **new_buckets = make(struct entry *, new_capacity);
+
+  for (size_t i = 0; i < m->cap; i++) {
+    struct entry *e = m->buckets[i];
+    while (e) {
+      struct entry *next = e->next;
+      size_t index = _hash(e->key, e->key_size, new_capacity);
+      e->next = new_buckets[index];
+      new_buckets[index] = e;
+      e = next;
+    }
+  }
+
+  free(m->buckets);
+  m->buckets = new_buckets;
+  m->cap = new_capacity;
+}
+
+void map_set(struct map *m, const char *key, size_t key_size, void *val) {
+  if ((double)m->size / (double)m->cap >= 1.0) {
+    _map_rehash(m);
+  }
+
+  size_t index = _hash(key, key_size, m->cap);
+  struct entry *e = m->buckets[index];
+  while (e) {
+    if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+      e->val = val;
+      return;
+    }
+    e = e->next;
+  }
+
+  struct entry *entry = new (struct entry);
+  entry->key = key;
+  entry->val = val;
+  entry->next = m->buckets[index];
+  m->buckets[index] = entry;
+  m->size++;
+}
+
+void *map_get(struct map *m, const char *key, size_t key_size) {
+  size_t index = _hash(key, key_size, m->cap);
+  struct entry *e = m->buckets[index];
+  while (e) {
+    if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+      return e->val;
+    }
+    e = e->next;
+  }
+  return NULL;
+}
+
+void map_del(struct map *m, const char *key, size_t key_size) {
+  size_t index = _hash(key, key_size, m->cap);
+  struct entry *e = m->buckets[index];
+  struct entry *prev = NULL;
+  while (e) {
+    if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+      if (prev) {
+        prev->next = e->next;
+      } else {
+        m->buckets[index] = e->next;
+      }
+      free(e);
+      m->size--;
+      return;
+    }
+    prev = e;
+    e = e->next;
+  }
+}
+
+void map_free(struct map *m) {
+  for (size_t i = 0; i < m->cap; i++) {
+    struct entry *e = m->buckets[i];
+    while (e) {
+      struct entry *next = e->next;
+      free(e);
+      e = next;
+    }
+  }
+  free(m->buckets);
 }
 
 enum object_kind { OBJ_NUM = 1 };
@@ -577,6 +701,7 @@ struct source *expr(union parser_ctx *ctx, struct source *s) {
 
 struct arg {
   struct elem as_elem;
+
   struct expr expr;
 };
 
