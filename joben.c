@@ -51,10 +51,8 @@ static int _next_uid(void) {
 static int _max(int a, int b) { return a > b ? a : b; }
 
 struct node {
-  struct node *left;
-  struct node *right;
-  int key;
-  int height;
+  struct node *left, *right;
+  int key, height;
 };
 
 void node_default(struct node *node) {
