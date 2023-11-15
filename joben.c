@@ -51,9 +51,9 @@ static int _next_uid(void) {
 static int _max(int a, int b) { return a > b ? a : b; }
 
 struct node {
-  int key;
   struct node *left;
   struct node *right;
+  int key;
   int height;
 };
 
@@ -139,6 +139,32 @@ void tree_free(struct node *root, void *(*downcast)(struct node *node)) {
   tree_free(root->left, downcast);
   tree_free(root->right, downcast);
   free(downcast(root));
+}
+
+struct elem {
+  struct elem *next;
+};
+
+void elem_default(struct elem *e) { e->next = NULL; }
+
+struct list {
+  struct elem *head;
+  struct elem *tail;
+};
+
+void list_default(struct list *l) {
+  l->head = NULL;
+  l->tail = NULL;
+}
+
+void list_insert(struct list *l, struct elem *e) {
+  if (!l->head && !l->tail) {
+    l->head = e;
+    l->tail = e;
+    return;
+  }
+  l->tail->next = e;
+  l->tail = e;
 }
 
 enum object_kind { OBJ_NUM = 1 };
@@ -347,6 +373,7 @@ union parser_ctx {
   struct parser **parsers;
 
   struct span *span;
+  struct list *list;
   struct node **nodes;
   struct expr *expr;
   struct def *def;
@@ -523,7 +550,8 @@ struct source *option(union parser_ctx *ctx, struct source *s) {
 }
 
 enum expr_kind {
-  EXPR_ITE = 1,
+  EXPR_APP = 1,
+  EXPR_ITE,
   EXPR_LAM,
   EXPR_NUM,
   EXPR_UNIT,
@@ -533,17 +561,90 @@ enum expr_kind {
   EXPR_PAREN
 };
 union expr_data {
-  struct span span;
-  struct expr *expr;
-  struct lambda *lam;
+  struct app *app;
   struct ite *ite;
+  struct lambda *lam;
+  struct span span;
 };
 struct expr {
   enum expr_kind kind;
   union expr_data data;
 };
 
-struct source *expr(union parser_ctx *ctx, struct source *s);
+struct source *parse_expr(struct expr *expr, struct source *s);
+
+struct source *expr(union parser_ctx *ctx, struct source *s) {
+  return parse_expr(ctx->expr, s);
+}
+
+struct arg {
+  struct elem as_elem;
+  struct expr expr;
+};
+
+void arg_default(struct arg *a) { elem_default(&a->as_elem); }
+
+struct app {
+  struct expr f;
+  struct list args;
+};
+
+void app_default(struct app *a) { list_default(&a->args); }
+
+struct source *arg(union parser_ctx *ctx, struct source *s) {
+  struct arg *a = new (struct arg);
+  arg_default(a);
+
+  s = parse_expr(&a->expr, s);
+  if (s->failed) {
+    free(a);
+    return s;
+  }
+
+  list_insert(ctx->list, &a->as_elem);
+  return s;
+}
+
+struct source *args(union parser_ctx *ctx, struct source *s) {
+  struct parser *no_args[] = {&_LPAREN, &_RPAREN, NULL};
+  struct parser all_no_args = {all, {.parsers = no_args}};
+
+  struct parser one_arg = {arg, {.list = ctx->list}};
+  struct parser *other_args[] = {&_COMMA, &one_arg, NULL};
+  struct parser all_other_args = {all, {.parsers = other_args}};
+  struct parser many_other_args = {many, {.parser = &all_other_args}};
+  struct parser *multi_args[] = {&_LPAREN, &one_arg, &many_other_args, &_RPAREN,
+                                 NULL};
+  struct parser all_multi_args = {all, {.parsers = multi_args}};
+
+  struct parser *branches[] = {&all_no_args, &all_multi_args, NULL};
+  return parse_any(branches, s);
+}
+
+static struct source *_expr_ref(union parser_ctx *ctx, struct source *s);
+static struct source *_expr_paren(union parser_ctx *ctx, struct source *s);
+
+static struct source *_expr_app(union parser_ctx *ctx, struct source *s) {
+  struct app *app = new (struct app);
+  app_default(app);
+
+  struct parser f_ref = {_expr_ref, {.expr = &app->f}};
+  struct parser f_expr = {_expr_paren, {.expr = &app->f}};
+  struct parser *f_parsers[] = {&f_ref, &f_expr, NULL};
+  struct parser f = {any, {.parsers = f_parsers}};
+
+  struct parser x = {args, {.list = &app->args}};
+
+  struct parser *parsers[] = {&f, &x, NULL};
+  s = parse_all(parsers, s);
+  if (s->failed) {
+    free(app);
+    return s;
+  }
+  ctx->expr->data.app = app;
+  ctx->expr->kind = EXPR_APP;
+  return s;
+}
 
 struct ite {
   struct expr i, t, e;
@@ -698,18 +799,19 @@ static struct source *_expr_paren(union parser_ctx *ctx, struct source *s) {
   return parse_all(parsers, s);
 }
 
-struct source *expr(union parser_ctx *ctx, struct source *s) {
-  struct parser expr_ite = {_expr_ite, {.expr = ctx->expr}};
-  struct parser expr_lam = {_expr_lambda, {.expr = ctx->expr}};
-  struct parser expr_num = {_expr_number, {.expr = ctx->expr}};
-  struct parser expr_unit = {_expr_unit, {.expr = ctx->expr}};
-  struct parser expr_false = {_expr_false, {.expr = ctx->expr}};
-  struct parser expr_true = {_expr_true, {.expr = ctx->expr}};
-  struct parser expr_ref = {_expr_ref, {.expr = ctx->expr}};
-  struct parser expr_paren = {_expr_paren, {.expr = ctx->expr}};
-  struct parser *branches[] = {&expr_ite,  &expr_lam,   &expr_num,
-                               &expr_unit, &expr_false, &expr_true,
-                               &expr_ref,  &expr_paren, NULL};
+struct source *parse_expr(struct expr *e, struct source *s) {
+  struct parser expr_app = {_expr_app, {.expr = e}};
+  struct parser expr_ite = {_expr_ite, {.expr = e}};
+  struct parser expr_lam = {_expr_lambda, {.expr = e}};
+  struct parser expr_num = {_expr_number, {.expr = e}};
+  struct parser expr_unit = {_expr_unit, {.expr = e}};
+  struct parser expr_false = {_expr_false, {.expr = e}};
+  struct parser expr_true = {_expr_true, {.expr = e}};
+  struct parser expr_ref = {_expr_ref, {.expr = e}};
+  struct parser expr_paren = {_expr_paren, {.expr = e}};
+  struct parser *branches[] = {&expr_app,   &expr_ite,   &expr_lam,  &expr_num,
+                               &expr_unit,  &expr_false, &expr_true, &expr_ref,
+                               &expr_paren, NULL};
   return parse_any(branches, s);
 }
 
@@ -794,28 +896,28 @@ struct source *parse_prog(struct node **defs, struct source *s) {
   return parse_all(parsers, s);
 }
 
-struct app {
+struct interp {
   const char *filename;
   FILE *infile;
   struct source src;
 };
 
-int app_init(struct app *app, int argc, const char *argv[]) {
+int interp_init(struct interp *i, int argc, const char *argv[]) {
   if (argc < 2) {
     return -1;
   }
-  app->filename = argv[1];
-  app->infile = fopen(app->filename, "r");
-  if (!app->infile) {
+  i->filename = argv[1];
+  i->infile = fopen(i->filename, "r");
+  if (!i->infile) {
     perror("open file error");
     return -1;
   }
-  source_init(&app->src, app->infile);
+  source_init(&i->src, i->infile);
   return 0;
 }
 
-int app_close(struct app *app) {
-  int ret = fclose(app->infile);
+int interp_close(struct interp *i) {
+  int ret = fclose(i->infile);
   if (ret != 0) {
     perror("close file error");
   }
@@ -846,22 +948,22 @@ int main(int argc, const char *argv[]) {
   _recovery();
 
   // Parsing some text.
-  struct app app;
-  if (app_init(&app, argc, argv) != 0) {
+  struct interp interp;
+  if (interp_init(&interp, argc, argv) != 0) {
     printf("usage: joben FILE\n");
     return 1;
   }
 
   struct prog program;
   prog_default(&program);
-  struct source *s = parse_prog(&program.defs, &app.src);
+  struct source *s = parse_prog(&program.defs, &interp.src);
   if (s->failed) {
-    printf("%s:%lu:%lu: parse error (pos=%lu)\n", app.filename, s->loc.ln,
+    printf("%s:%lu:%lu: parse error (pos=%lu)\n", interp.filename, s->loc.ln,
            s->loc.col, s->loc.pos);
     return 1;
   }
   tree_foreach(program.defs, _iter_def);
-  if (app_close(&app) != 0) {
+  if (interp_close(&interp) != 0) {
     return 1;
   }
 
