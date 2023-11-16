@@ -2,8 +2,8 @@
 .idea/
 .vscode/
 
-/joben
-/joben_sanitize_*
+/oxn
+/oxn_sanitize_*
 
 # Prerequisites
 *.d
