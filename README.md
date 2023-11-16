@@ -1,8 +1,8 @@
-# joben
+# oxn
 
 > WIP.
 
-Joben scripting language.
+Oxn programming language.
 
 ## License
 

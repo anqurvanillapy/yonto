@@ -17,29 +17,29 @@ OPTIMIZE := -O0
 DEBUG := -g3
 LIBS := -lgccjit
 ARGS := ${LINT} ${OPTIMIZE} ${DEBUG} ${LIBS}
-SRC := joben.c
+SRC := oxn.c
 
-joben: ${SRC}
+oxn: ${SRC}
 	${CC} ${ARGS} -o $@ $^
 
 .PHONY: sanitize
-sanitize: joben_sanitize_asan joben_sanitize_tsan joben_sanitize_ubsan
+sanitize: oxn_sanitize_asan oxn_sanitize_tsan oxn_sanitize_ubsan
 
-joben_sanitize_msan: ${SRC}
+oxn_sanitize_msan: ${SRC}
 	${CC} ${ARGS} -fsanitize=memory -o $@ $^
 
-joben_sanitize_asan: ${SRC}
+oxn_sanitize_asan: ${SRC}
 	${CC} ${ARGS} -fsanitize=address -o $@ $^
 
-joben_sanitize_tsan: ${SRC}
+oxn_sanitize_tsan: ${SRC}
 	${CC} ${ARGS} -fsanitize=thread -o $@ $^
 
-joben_sanitize_lsan: ${SRC}
+oxn_sanitize_lsan: ${SRC}
 	${CC} ${ARGS} -fsanitize=leak -o $@ $^
 
-joben_sanitize_ubsan: ${SRC}
+oxn_sanitize_ubsan: ${SRC}
 	${CC} ${ARGS} -fsanitize=undefined -o $@ $^
 
 .PHONY: clean
 clean:
-	rm -rf joben joben_sanitize_* *.dSYM
+	rm -rf oxn oxn_sanitize_* *.dSYM

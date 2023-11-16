@@ -1081,7 +1081,7 @@ int main(int argc, const char *argv[]) {
   // Parsing some text.
   struct interp interp;
   if (interp_init(&interp, argc, argv) != 0) {
-    printf("usage: joben FILE\n");
+    printf("usage: oxn FILE\n");
     return 1;
   }
 
@@ -1146,7 +1146,7 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
 
-  say_hi("Joben");
+  say_hi("Oxn");
 
   gcc_jit_context_release(ctx);
   gcc_jit_result_release(ret);
