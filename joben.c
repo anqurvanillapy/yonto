@@ -61,6 +61,15 @@ static int _next_uid(void) {
 
 static int _max(int a, int b) { return a > b ? a : b; }
 
+struct str {
+  const char *buf;
+  size_t size;
+};
+
+bool str_eq(struct str a, struct str b) {
+  return a.size == b.size && memcmp(a.buf, b.buf, a.size);
+}
+
 struct node {
   struct node *left, *right;
   int key, height;
@@ -179,8 +188,7 @@ void list_insert(struct list *l, struct elem *e) {
 
 struct entry {
   struct entry *next;
-  const char *key;
-  size_t key_size;
+  struct str key;
   int val;
 };
 
@@ -195,10 +203,10 @@ void map_default(struct map *m) {
   m->cap = 8;
 }
 
-static size_t _hash(const char *key, size_t key_size, size_t cap) {
+static size_t _hash(struct str key, size_t cap) {
   size_t hash = 0;
-  for (size_t i = 0; i < key_size; i++) {
-    hash = hash * 31 + (size_t)key[i];
+  for (size_t i = 0; i < key.size; i++) {
+    hash = hash * 31 + (size_t)key.buf[i];
   }
   return hash % cap;
 }
@@ -211,7 +219,7 @@ static void _map_rehash(struct map *m) {
     struct entry *e = m->buckets[i];
     while (e) {
       struct entry *next = e->next;
-      size_t index = _hash(e->key, e->key_size, new_capacity);
+      size_t index = _hash(e->key, new_capacity);
       e->next = new_buckets[index];
       new_buckets[index] = e;
       e = next;
@@ -223,16 +231,14 @@ static void _map_rehash(struct map *m) {
   m->cap = new_capacity;
 }
 
-bool map_set(struct map *m, const char *key, size_t key_size, int val,
-             int *old) {
+bool map_set(struct map *m, struct str key, int val, int *old) {
   if ((double)m->size / (double)m->cap >= 1.0) {
     _map_rehash(m);
   }
-
-  size_t index = _hash(key, key_size, m->cap);
+  size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
-    if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+    if (str_eq(e->key, key)) {
       if (old) {
         *old = e->val;
       }
@@ -243,7 +249,6 @@ bool map_set(struct map *m, const char *key, size_t key_size, int val,
   }
   e = new (struct entry);
   e->key = key;
-  e->key_size = key_size;
   e->val = val;
   e->next = m->buckets[index];
   m->buckets[index] = e;
@@ -251,11 +256,11 @@ bool map_set(struct map *m, const char *key, size_t key_size, int val,
   return false;
 }
 
-bool map_get(struct map *m, const char *key, size_t key_size, int *val) {
-  size_t index = _hash(key, key_size, m->cap);
+bool map_get(struct map *m, struct str key, int *val) {
+  size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
-    if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+    if (str_eq(e->key, key)) {
       *val = e->val;
       return true;
     }
@@ -264,12 +269,12 @@ bool map_get(struct map *m, const char *key, size_t key_size, int *val) {
   return false;
 }
 
-void map_del(struct map *m, const char *key, size_t key_size) {
-  size_t index = _hash(key, key_size, m->cap);
+void map_del(struct map *m, struct str key) {
+  size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   struct entry *prev = NULL;
   while (e) {
-    if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
+    if (str_eq(e->key, key)) {
       if (prev) {
         prev->next = e->next;
       } else {
