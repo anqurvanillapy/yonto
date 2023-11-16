@@ -1,5 +1,6 @@
 #include "libgccjit.h"
 #include <ctype.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -180,7 +181,7 @@ struct entry {
   struct entry *next;
   const char *key;
   size_t key_size;
-  void *val;
+  int val;
 };
 
 struct map {
@@ -222,7 +223,8 @@ static void _map_rehash(struct map *m) {
   m->cap = new_capacity;
 }
 
-void *map_set(struct map *m, const char *key, size_t key_size, void *val) {
+bool map_set(struct map *m, const char *key, size_t key_size, int val,
+             int *old) {
   if ((double)m->size / (double)m->cap >= 1.0) {
     _map_rehash(m);
   }
@@ -231,9 +233,11 @@ void *map_set(struct map *m, const char *key, size_t key_size, void *val) {
   struct entry *e = m->buckets[index];
   while (e) {
     if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
-      void *prev = e->val;
+      if (old) {
+        *old = e->val;
+      }
       e->val = val;
-      return prev;
+      return true;
     }
     e = e->next;
   }
@@ -244,19 +248,20 @@ void *map_set(struct map *m, const char *key, size_t key_size, void *val) {
   e->next = m->buckets[index];
   m->buckets[index] = e;
   m->size++;
-  return NULL;
+  return false;
 }
 
-void *map_get(struct map *m, const char *key, size_t key_size) {
+bool map_get(struct map *m, const char *key, size_t key_size, int *val) {
   size_t index = _hash(key, key_size, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
     if (e->key_size == key_size && memcmp(e->key, key, key_size) == 0) {
-      return e->val;
+      *val = e->val;
+      return true;
     }
     e = e->next;
   }
-  return NULL;
+  return false;
 }
 
 void map_del(struct map *m, const char *key, size_t key_size) {
@@ -416,15 +421,15 @@ struct span {
 struct source {
   struct loc loc;
   FILE *f;
-  int failed, atom, newline_sensitive;
+  bool failed, atom, newline_sensitive;
 };
 
 void source_init(struct source *s, FILE *f) {
   loc_default(&s->loc);
   s->f = f;
-  s->failed = 0;
-  s->atom = 0;
-  s->newline_sensitive = 0;
+  s->failed = false;
+  s->atom = false;
+  s->newline_sensitive = false;
 }
 
 size_t source_size(struct source *s) {
@@ -460,13 +465,13 @@ char source_next(struct source *s) {
 
 struct source *source_back(struct source *s, struct loc loc) {
   s->loc = loc;
-  s->failed = 0;
+  s->failed = false;
   return s;
 }
 
 struct source *source_eat(struct source *s, char c) {
   if (source_next(s) != c) {
-    s->failed = 1;
+    s->failed = true;
   }
   return s;
 }
@@ -511,7 +516,7 @@ struct parser {
 struct source *soi(union parser_ctx *ctx, struct source *s) {
   (void)ctx;
   if (s->loc.pos != 0) {
-    s->failed = 1;
+    s->failed = true;
   }
   return s;
 }
@@ -519,7 +524,7 @@ struct source *soi(union parser_ctx *ctx, struct source *s) {
 struct source *eoi(union parser_ctx *ctx, struct source *s) {
   (void)ctx;
   if (s->loc.pos != source_size(s)) {
-    s->failed = 1;
+    s->failed = true;
   }
   return s;
 }
@@ -529,7 +534,7 @@ static struct parser _EOI = {eoi, {.word = NULL}};
 
 struct source *parse_atom(struct parser *parser, struct source *s) {
   int atom = s->atom;
-  s->atom = 1;
+  s->atom = true;
   s = parser->parse(&parser->ctx, s);
   s->atom = atom;
   return s;
@@ -566,7 +571,7 @@ struct source *range(union parser_ctx *ctx, struct source *s) {
   char from = ctx->range.from, to = ctx->range.to;
   char c = source_peek(s);
   if (c < from || c > to) {
-    s->failed = 1;
+    s->failed = true;
     return s;
   }
   return source_eat(s, c);
@@ -582,7 +587,7 @@ struct source *parse_lowercase(struct span *span, struct source *s) {
 
   char first = source_peek(s);
   if (first < 0 || !islower(first) || !isalpha(first)) {
-    s->failed = 1;
+    s->failed = true;
     return s;
   }
   s = source_eat(s, first);
@@ -631,7 +636,7 @@ struct source *parse_any(struct parser **parsers, struct source *s) {
     }
     s = source_back(s, loc);
   }
-  s->failed = 1;
+  s->failed = true;
   return s;
 }
 
@@ -644,7 +649,7 @@ static struct parser _END = {any, {.parsers = _END_SYMBOLS}};
 
 struct source *parse_end(struct source *s) {
   int newline_sensitive = s->newline_sensitive;
-  s->newline_sensitive = 1;
+  s->newline_sensitive = true;
   s = skip_spaces(s);
   s = _END.parse(&_END.ctx, s);
   s->newline_sensitive = newline_sensitive;
