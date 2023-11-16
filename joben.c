@@ -40,7 +40,7 @@ void *allocate(size_t size) {
   return NULL;
 }
 
-void *allocate_count(size_t size, size_t count) {
+void *allocate_zeroed(size_t size, size_t count) {
   void *ret = calloc(count, size);
   if (ret) {
     return ret;
@@ -49,8 +49,17 @@ void *allocate_count(size_t size, size_t count) {
   return NULL;
 }
 
+void *reallocate(void *p, size_t size) {
+  void *ret = realloc(p, size);
+  if (ret) {
+    return ret;
+  }
+  panic("out of memory");
+  return NULL;
+}
+
 #define new(type) allocate(sizeof(type))
-#define make(type, count) allocate_count(sizeof(type), count)
+#define make(type, count) allocate_zeroed(sizeof(type), count)
 
 static volatile int _NEXT_UID = 0;
 
@@ -159,31 +168,31 @@ void tree_free(struct node *root, void *(*downcast)(struct node *node)) {
   free(downcast(root));
 }
 
-struct elem {
-  struct elem *next;
+struct slice {
+  uint8_t *data;
+  size_t elem_size, size, cap;
 };
 
-void elem_default(struct elem *e) { e->next = NULL; }
-
-// FIXME: Use vectors instead.
-struct list {
-  struct elem *head;
-  struct elem *tail;
-};
-
-void list_default(struct list *l) {
-  l->head = NULL;
-  l->tail = NULL;
+void slice_init(struct slice *s, size_t elem_size) {
+  s->elem_size = elem_size;
+  s->size = 0;
+  s->cap = 8;
+  s->data = allocate_zeroed(elem_size, s->cap);
 }
 
-void list_insert(struct list *l, struct elem *e) {
-  if (!l->head && !l->tail) {
-    l->head = e;
-    l->tail = e;
-    return;
+void slice_append(struct slice *s, void *value) {
+  if (s->size == s->cap) {
+    s->cap *= 2;
+    s->data = reallocate(s->data, s->cap * s->elem_size);
   }
-  l->tail->next = e;
-  l->tail = e;
+  memcpy(s->data + s->size * s->elem_size, value, s->elem_size);
+  s->size++;
+}
+
+void slice_free(struct slice *s) {
+  free(s->data);
+  s->size = 0;
+  s->cap = 0;
 }
 
 struct entry {
@@ -507,7 +516,7 @@ union parser_ctx {
   struct parser **parsers;
 
   struct span *span;
-  struct list *list;
+  struct slice *slice;
   struct node **nodes;
   struct expr *expr;
   struct def *def;
@@ -711,32 +720,19 @@ struct source *expr(union parser_ctx *ctx, struct source *s) {
   return parse_expr(ctx->expr, s);
 }
 
-struct arg {
-  struct elem as_elem;
-
-  struct expr expr;
-};
-
-void arg_default(struct arg *a) { elem_default(&a->as_elem); }
-
 struct app {
   struct expr f;
-  struct list args;
+  struct slice args;
 };
 
-void app_default(struct app *a) { list_default(&a->args); }
+void app_default(struct app *a) { slice_init(&a->args, sizeof(struct expr)); }
 
 struct source *arg(union parser_ctx *ctx, struct source *s) {
-  struct arg *a = new (struct arg);
-  arg_default(a);
-
-  s = parse_expr(&a->expr, s);
-  if (s->failed) {
-    free(a);
-    return s;
+  struct expr a;
+  s = parse_expr(&a, s);
+  if (!s->failed) {
+    slice_append(ctx->slice, &a);
   }
-
-  list_insert(ctx->list, &a->as_elem);
   return s;
 }
 
@@ -744,7 +740,7 @@ struct source *args(union parser_ctx *ctx, struct source *s) {
   struct parser *no_args[] = {&_LPAREN, &_RPAREN, NULL};
   struct parser all_no_args = {all, {.parsers = no_args}};
 
-  struct parser one_arg = {arg, {.list = ctx->list}};
+  struct parser one_arg = {arg, {.slice = ctx->slice}};
   struct parser *other_args[] = {&_COMMA, &one_arg, NULL};
   struct parser all_other_args = {all, {.parsers = other_args}};
   struct parser many_other_args = {many, {.parser = &all_other_args}};
@@ -768,7 +764,7 @@ static struct source *_expr_app(union parser_ctx *ctx, struct source *s) {
   struct parser *f_parsers[] = {&f_ref, &f_expr, NULL};
   struct parser f = {any, {.parsers = f_parsers}};
 
-  struct parser x = {args, {.list = &app->args}};
+  struct parser x = {args, {.slice = &app->args}};
 
   struct parser *parsers[] = {&f, &x, NULL};
   s = parse_all(parsers, s);
