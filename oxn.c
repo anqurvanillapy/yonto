@@ -31,6 +31,8 @@ void panic(const char *msg) {
   exit(1);
 }
 
+void unreachable(void) { panic("unreachable"); }
+
 void *allocate(size_t size) {
   void *ret = malloc(size);
   if (ret) {
@@ -181,8 +183,17 @@ void slice_append(struct slice *s, void *value) {
   s->size++;
 }
 
+void slice_iter(void *data, struct slice *s,
+                void (*f)(void *data, void *elem)) {
+  uint8_t *elem = s->data;
+  for (size_t i = 0; i < s->size; i++, elem += s->elem_size) {
+    f(data, elem);
+  }
+}
+
 void slice_free(struct slice *s) {
   free(s->data);
+  s->data = NULL;
   s->size = 0;
   s->cap = 0;
 }
@@ -232,17 +243,14 @@ static void _map_rehash(struct map *m) {
   m->cap = new_capacity;
 }
 
-bool map_set(struct map *m, const char *key, int val, int *old) {
+bool map_set(struct map *m, const char *key, int val) {
   if ((double)m->size / (double)m->cap >= 1.0) {
     _map_rehash(m);
   }
   size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
-    if (strcmp(e->key, key)) {
-      if (old) {
-        *old = e->val;
-      }
+    if (strcmp(e->key, key) == 0) {
       e->val = val;
       return true;
     }
@@ -261,7 +269,7 @@ bool map_get(struct map *m, const char *key, int *val) {
   size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
-    if (strcmp(e->key, key)) {
+    if (strcmp(e->key, key) == 0) {
       *val = e->val;
       return true;
     }
@@ -270,36 +278,35 @@ bool map_get(struct map *m, const char *key, int *val) {
   return false;
 }
 
-void map_del(struct map *m, const char *key) {
-  size_t index = _hash(key, m->cap);
-  struct entry *e = m->buckets[index];
-  struct entry *prev = NULL;
-  while (e) {
-    if (strcmp(e->key, key)) {
-      if (prev) {
-        prev->next = e->next;
-      } else {
-        m->buckets[index] = e->next;
-      }
-      free(e);
-      m->size--;
-      return;
-    }
-    prev = e;
-    e = e->next;
-  }
-}
-
 void map_free(struct map *m) {
   for (size_t i = 0; i < m->cap; i++) {
     struct entry *e = m->buckets[i];
     while (e) {
       struct entry *next = e->next;
+      if (e->key) {
+        free((void *)e->key);
+      }
       free(e);
       e = next;
     }
   }
   free(m->buckets);
+  m->buckets = NULL;
+}
+
+void map_merge(struct map *lhs, struct map *rhs) {
+  for (size_t i = 0; i < rhs->cap; i++) {
+    struct entry *rhs_e = rhs->buckets[i];
+    while (rhs_e) {
+      struct entry *rhs_next = rhs_e->next;
+      if (map_set(lhs, rhs_e->key, rhs_e->val)) {
+        free((void *)rhs_e->key);
+        rhs_e->key = NULL;
+      }
+      rhs_e = rhs_next;
+    }
+  }
+  map_free(rhs);
 }
 
 enum object_kind { OBJ_NUM = 1 };
@@ -447,9 +454,6 @@ size_t source_size(struct source *s) {
 
 const char *source_text(struct source *s, struct span span) {
   size_t size = span.end.pos - span.start.pos + 1;
-  if (size == 0) {
-    return NULL;
-  }
   char *text = allocate(size);
   fseek(s->f, (long)span.start.pos, SEEK_SET);
   return fgets(text, (int)size, s->f);
@@ -702,14 +706,15 @@ enum expr_kind {
   EXPR_UNIT,
   EXPR_FALSE,
   EXPR_TRUE,
-  EXPR_REF,
-  EXPR_PAREN
+  EXPR_UNRESOLVED,
+  EXPR_RESOLVED,
 };
 union expr_data {
   struct app *app;
   struct ite *ite;
   struct lambda *lam;
   struct span span;
+  int id;
 };
 struct expr {
   enum expr_kind kind;
@@ -920,7 +925,7 @@ static struct source *_expr_ref(union parser_ctx *ctx, struct source *s) {
   struct span ref;
   s = parse_lowercase(&ref, s);
   if (!s->failed) {
-    ctx->expr->kind = EXPR_REF;
+    ctx->expr->kind = EXPR_UNRESOLVED;
     ctx->expr->data.span = ref;
   }
   return s;
@@ -1029,28 +1034,146 @@ struct source *parse_prog(struct node **defs, struct source *s) {
   return parse_all(parsers, s);
 }
 
+enum resolve_state { RESOLVE_OK, RESOLVE_NOTFOUND, RESOLVE_DUPLICATE };
+
 struct resolver {
   struct source *s;
-  struct map m;
-  bool failed;
-  struct span failed_name;
+  struct map globals, locals, params;
+  enum resolve_state state;
+  struct span name_span;
+  const char *name_text;
 };
 
 void resolver_init(struct resolver *r, struct source *s) {
   r->s = s;
-  map_default(&r->m);
-  r->failed = false;
+  map_default(&r->globals);
+  r->state = RESOLVE_OK;
+  r->name_text = NULL;
 }
 
-// static void _resolve_param(void *data, struct node *node) {
-//   struct resolver *r = data;
-//   struct param *p = (struct param *)node;
-// }
+void resolver_free(struct resolver *r) {
+  map_free(&r->globals);
+  if (r->name_text) {
+    free((void *)r->name_text);
+  }
+}
 
-// static void _resolve_def(void *data, struct node *node) {
-//   struct resolver *r = data;
-//   struct def *d = (struct def *)node;
-// }
+void resolve(struct resolver *r, struct expr *e);
+
+void resolve_arg(void *data, void *arg) {
+  resolve((struct resolver *)data, (struct expr *)arg);
+}
+
+void resolve(struct resolver *r, struct expr *e) {
+  switch (e->kind) {
+  case EXPR_APP: {
+    resolve(r, &e->data.app->f);
+    if (r->state != RESOLVE_OK) {
+      return;
+    }
+    slice_iter(r, &e->data.app->args, resolve_arg);
+    return;
+  }
+  case EXPR_ITE: {
+    resolve(r, &e->data.ite->i);
+    if (r->state != RESOLVE_OK) {
+      return;
+    }
+    resolve(r, &e->data.ite->t);
+    if (r->state != RESOLVE_OK) {
+      return;
+    }
+    resolve(r, &e->data.ite->e);
+    return;
+  }
+  case EXPR_LAM: {
+    // TODO
+    panic("TODO");
+    return;
+  }
+  case EXPR_UNRESOLVED: {
+    const char *name_text = source_text(r->s, e->data.span);
+    int id;
+    if (map_get(&r->locals, name_text, &id) ||
+        map_get(&r->globals, name_text, &id)) {
+      free((void *)name_text);
+      e->kind = EXPR_RESOLVED;
+      e->data.id = id;
+      return;
+    }
+    r->state = RESOLVE_NOTFOUND;
+    r->name_span = e->data.span;
+    r->name_text = name_text;
+    return;
+  }
+  case EXPR_NUM:
+  case EXPR_UNIT:
+  case EXPR_FALSE:
+  case EXPR_TRUE:
+    return;
+  case EXPR_RESOLVED:
+    break;
+  }
+  unreachable();
+}
+
+void validate_param(void *data, struct node *node) {
+  struct resolver *r = data;
+  if (r->state != RESOLVE_OK) {
+    return;
+  }
+  struct param *p = (struct param *)node;
+  const char *name_text = source_text(r->s, p->name);
+  if (map_set(&r->params, name_text, p->as_node.key)) {
+    r->state = RESOLVE_DUPLICATE;
+    r->name_span = p->name;
+    r->name_text = name_text;
+  }
+}
+
+void resolve_param(void *data, struct node *node) {
+  struct resolver *r = data;
+  if (r->state != RESOLVE_OK) {
+    return;
+  }
+  struct param *p = (struct param *)node;
+  const char *name_text = source_text(r->s, p->name);
+  if (map_set(&r->locals, name_text, p->as_node.key)) {
+    free((void *)name_text);
+  }
+}
+
+void resolve_def(void *data, struct node *node) {
+  struct resolver *r = data;
+  if (r->state != RESOLVE_OK) {
+    return;
+  }
+
+  struct def *d = (struct def *)node;
+  const char *name_text = source_text(r->s, d->name);
+  if (map_set(&r->globals, name_text, d->as_node.key)) {
+    r->state = RESOLVE_DUPLICATE;
+    r->name_span = d->name;
+    r->name_text = name_text;
+    return;
+  }
+
+  map_default(&r->params);
+  tree_iter(r, d->params, validate_param);
+  if (r->state != RESOLVE_OK) {
+    return;
+  }
+
+  map_default(&r->locals);
+  map_merge(&r->locals, &r->params);
+  tree_iter(r, d->params, resolve_param);
+  if (r->state != RESOLVE_OK) {
+    return;
+  }
+
+  resolve(r, &d->body.ret);
+  map_free(&r->locals);
+}
 
 struct interp {
   const char *filename;
