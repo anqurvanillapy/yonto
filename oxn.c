@@ -70,15 +70,6 @@ static int _next_uid(void) {
 
 static int _max(int a, int b) { return a > b ? a : b; }
 
-struct str {
-  const char *buf;
-  size_t size;
-};
-
-bool str_eq(struct str a, struct str b) {
-  return a.size == b.size && memcmp(a.buf, b.buf, a.size);
-}
-
 struct node {
   struct node *left, *right;
   int key, height;
@@ -150,13 +141,14 @@ struct node *tree_insert(struct node *root, struct node *other) {
   return root;
 }
 
-void tree_foreach(struct node *root, void (*f)(struct node *node)) {
+void tree_iter(void *data, struct node *root,
+               void (*f)(void *data, struct node *node)) {
   if (!root) {
     return;
   }
-  tree_foreach(root->left, f);
-  f(root);
-  tree_foreach(root->right, f);
+  tree_iter(data, root->left, f);
+  f(data, root);
+  tree_iter(data, root->right, f);
 }
 
 void tree_free(struct node *root, void *(*downcast)(struct node *node)) {
@@ -176,7 +168,7 @@ struct slice {
 void slice_init(struct slice *s, size_t elem_size) {
   s->elem_size = elem_size;
   s->size = 0;
-  s->cap = 8;
+  s->cap = 4;
   s->data = allocate_zeroed(elem_size, s->cap);
 }
 
@@ -197,7 +189,7 @@ void slice_free(struct slice *s) {
 
 struct entry {
   struct entry *next;
-  struct str key;
+  const char *key;
   int val;
 };
 
@@ -212,10 +204,10 @@ void map_default(struct map *m) {
   m->cap = 8;
 }
 
-static size_t _hash(struct str key, size_t cap) {
+static size_t _hash(const char *key, size_t cap) {
   size_t hash = 0;
-  for (size_t i = 0; i < key.size; i++) {
-    hash = hash * 31 + (size_t)key.buf[i];
+  for (char c = *key; c != '\0'; c++) {
+    hash = hash * 31 + (size_t)c;
   }
   return hash % cap;
 }
@@ -240,14 +232,14 @@ static void _map_rehash(struct map *m) {
   m->cap = new_capacity;
 }
 
-bool map_set(struct map *m, struct str key, int val, int *old) {
+bool map_set(struct map *m, const char *key, int val, int *old) {
   if ((double)m->size / (double)m->cap >= 1.0) {
     _map_rehash(m);
   }
   size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
-    if (str_eq(e->key, key)) {
+    if (strcmp(e->key, key)) {
       if (old) {
         *old = e->val;
       }
@@ -265,11 +257,11 @@ bool map_set(struct map *m, struct str key, int val, int *old) {
   return false;
 }
 
-bool map_get(struct map *m, struct str key, int *val) {
+bool map_get(struct map *m, const char *key, int *val) {
   size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   while (e) {
-    if (str_eq(e->key, key)) {
+    if (strcmp(e->key, key)) {
       *val = e->val;
       return true;
     }
@@ -278,12 +270,12 @@ bool map_get(struct map *m, struct str key, int *val) {
   return false;
 }
 
-void map_del(struct map *m, struct str key) {
+void map_del(struct map *m, const char *key) {
   size_t index = _hash(key, m->cap);
   struct entry *e = m->buckets[index];
   struct entry *prev = NULL;
   while (e) {
-    if (str_eq(e->key, key)) {
+    if (strcmp(e->key, key)) {
       if (prev) {
         prev->next = e->next;
       } else {
@@ -451,6 +443,16 @@ size_t source_size(struct source *s) {
   long size = ftell(s->f);
   fseek(s->f, (long)s->loc.pos, SEEK_SET);
   return (size_t)size;
+}
+
+const char *source_text(struct source *s, struct span span) {
+  size_t size = span.end.pos - span.start.pos + 1;
+  if (size == 0) {
+    return NULL;
+  }
+  char *text = allocate(size);
+  fseek(s->f, (long)span.start.pos, SEEK_SET);
+  return fgets(text, (int)size, s->f);
 }
 
 char source_peek(struct source *s) {
@@ -1027,6 +1029,29 @@ struct source *parse_prog(struct node **defs, struct source *s) {
   return parse_all(parsers, s);
 }
 
+struct resolver {
+  struct source *s;
+  struct map m;
+  bool failed;
+  struct span failed_name;
+};
+
+void resolver_init(struct resolver *r, struct source *s) {
+  r->s = s;
+  map_default(&r->m);
+  r->failed = false;
+}
+
+// static void _resolve_param(void *data, struct node *node) {
+//   struct resolver *r = data;
+//   struct param *p = (struct param *)node;
+// }
+
+// static void _resolve_def(void *data, struct node *node) {
+//   struct resolver *r = data;
+//   struct def *d = (struct def *)node;
+// }
+
 struct interp {
   const char *filename;
   FILE *infile;
@@ -1055,16 +1080,17 @@ int interp_close(struct interp *i) {
   return ret;
 }
 
-static void _iter_param(struct node *node) {
+static void _iter_param(void *data, struct node *node) {
+  (void)data;
   struct param *param = (struct param *)node;
   printf("param: key=%d, pos=%lu\n", param->as_node.key, param->name.start.pos);
 }
 
-static void _iter_def(struct node *node) {
+static void _iter_def(void *data, struct node *node) {
   struct def *d = (struct def *)node;
   printf("def: key=%d, pos=%lu, kind=%d, ret_kind=%d\n", d->as_node.key,
          d->name.start.pos, d->kind, d->body.ret.kind);
-  tree_foreach(d->params, _iter_param);
+  tree_iter(data, d->params, _iter_param);
 }
 
 #if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) &&   \
@@ -1093,7 +1119,7 @@ int main(int argc, const char *argv[]) {
            s->loc.col, s->loc.pos);
     return 1;
   }
-  tree_foreach(program.defs, _iter_def);
+  tree_iter(NULL, program.defs, _iter_def);
   if (interp_close(&interp) != 0) {
     return 1;
   }
