@@ -1057,16 +1057,53 @@ void Resolver_Free(struct Resolver *r) {
   }
 }
 
-void Resolver_Resolve(struct Resolver *r, struct Expr *e);
+void Resolver_Expr(struct Resolver *r, struct Expr *e);
 
 static void Resolver_resolveArg(void *data, void *arg) {
-  Resolver_Resolve((struct Resolver *)data, (struct Expr *)arg);
+  Resolver_Expr((struct Resolver *)data, (struct Expr *)arg);
 }
 
-void Resolver_Resolve(struct Resolver *r, struct Expr *e) {
+static void Resolver_validateLocal(void *data, struct node *node) {
+  struct Resolver *r = data;
+  if (r->State != Resolution_OK) {
+    return;
+  }
+  struct Param *p = (struct Param *)node;
+  const char *nameText = source_Text(r->Src, p->Name);
+  if (map_Set(&r->Params, nameText, p->AsNode.Key)) {
+    r->State = Resolution_Duplicate;
+    r->NameSpan = p->Name;
+    r->NameText = nameText;
+  }
+}
+
+static void Resolver_insertLocal(void *data, struct node *node) {
+  struct Resolver *r = data;
+  if (r->State != Resolution_OK) {
+    return;
+  }
+  struct Param *p = (struct Param *)node;
+  const char *nameText = source_Text(r->Src, p->Name);
+  if (map_Set(&r->Locals, nameText, p->AsNode.Key)) {
+    free((void *)nameText);
+  }
+}
+
+static void Resolver_insertLocals(struct Resolver *r, struct node *params) {
+  map_Default(&r->Params);
+  tree_Iter(r, params, Resolver_validateLocal);
+  if (r->State != Resolution_OK) {
+    return;
+  }
+  map_Default(&r->Locals);
+  map_Merge(&r->Locals, &r->Params);
+  tree_Iter(r, params, Resolver_insertLocal);
+}
+
+void Resolver_Expr(struct Resolver *r, struct Expr *e) {
   switch (e->kind) {
   case Expr_App: {
-    Resolver_Resolve(r, &e->data.App->F);
+    Resolver_Expr(r, &e->data.App->F);
     if (r->State != Resolution_OK) {
       return;
     }
@@ -1074,20 +1111,23 @@ void Resolver_Resolve(struct Resolver *r, struct Expr *e) {
     return;
   }
   case Expr_Ite: {
-    Resolver_Resolve(r, &e->data.Ite->i);
+    Resolver_Expr(r, &e->data.Ite->i);
     if (r->State != Resolution_OK) {
       return;
     }
-    Resolver_Resolve(r, &e->data.Ite->t);
+    Resolver_Expr(r, &e->data.Ite->t);
     if (r->State != Resolution_OK) {
       return;
     }
-    Resolver_Resolve(r, &e->data.Ite->e);
+    Resolver_Expr(r, &e->data.Ite->e);
     return;
   }
   case Expr_Lam: {
-    // TODO
-    panic("TODO");
+    Resolver_insertLocals(r, e->data.Lam->Params);
+    if (r->State != Resolution_OK) {
+      return;
+    }
+    Resolver_Expr(r, &e->data.Lam->Body);
     return;
   }
   case Expr_Unresolved: {
@@ -1116,33 +1156,7 @@ void Resolver_Resolve(struct Resolver *r, struct Expr *e) {
   unreachable();
 }
 
-static void Resolver_validateParam(void *data, struct node *node) {
-  struct Resolver *r = data;
-  if (r->State != Resolution_OK) {
-    return;
-  }
-  struct Param *p = (struct Param *)node;
-  const char *nameText = source_Text(r->Src, p->Name);
-  if (map_Set(&r->Params, nameText, p->AsNode.Key)) {
-    r->State = Resolution_Duplicate;
-    r->NameSpan = p->Name;
-    r->NameText = nameText;
-  }
-}
-
-static void Resolver_resolveParam(void *data, struct node *node) {
-  struct Resolver *r = data;
-  if (r->State != Resolution_OK) {
-    return;
-  }
-  struct Param *p = (struct Param *)node;
-  const char *nameText = source_Text(r->Src, p->Name);
-  if (map_Set(&r->Locals, nameText, p->AsNode.Key)) {
-    free((void *)nameText);
-  }
-}
-
-/*static*/ void Resolver_resolveDef(void *data, struct node *node) {
+static void Resolver_insertGlobal(void *data, struct node *node) {
   struct Resolver *r = data;
   if (r->State != Resolution_OK) {
     return;
@@ -1157,21 +1171,17 @@ static void Resolver_resolveParam(void *data, struct node *node) {
     return;
   }
 
-  map_Default(&r->Params);
-  tree_Iter(r, d->Params, Resolver_validateParam);
+  Resolver_insertLocals(r, d->Params);
   if (r->State != Resolution_OK) {
     return;
   }
 
-  map_Default(&r->Locals);
-  map_Merge(&r->Locals, &r->Params);
-  tree_Iter(r, d->Params, Resolver_resolveParam);
-  if (r->State != Resolution_OK) {
-    return;
-  }
-
-  Resolver_Resolve(r, &d->Body.Ret);
+  Resolver_Expr(r, &d->Body.Ret);
   map_Free(&r->Locals);
+}
+
+void Resolver_Program(struct Resolver *r, struct Program *p) {
+  tree_Iter(r, p->Defs, Resolver_insertGlobal);
 }
 
 struct Driver {
