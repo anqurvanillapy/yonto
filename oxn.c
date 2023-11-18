@@ -5,35 +5,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #ifdef __GNUC__
 #include <execinfo.h>
-void print_stack(void) {
+static void printStack(void) {
   void *buf[10];
-  int nframes = backtrace(buf, sizeof(buf) / sizeof(void *));
-  char **symbols = backtrace_symbols(buf, nframes);
+  int frameNum = backtrace(buf, sizeof(buf) / sizeof(void *));
+  char **symbols = backtrace_symbols(buf, frameNum);
 
   printf("stacktrace:\n");
-  for (int i = 0; i < nframes; ++i) {
+  for (int i = 0; i < frameNum; ++i) {
     printf("\t%s\n", symbols[i]);
   }
 
   free(symbols);
 }
 #else
-void print_stack(void) { printf("(unknown)\n"); }
+static void printStack(void) { printf("(unknown)\n"); }
 #endif
 
-void panic(const char *msg) {
+static void panic(const char *msg) {
   printf("panic: %s\n\n", msg);
-  print_stack();
+  printStack();
   exit(1);
 }
 
-void unreachable(void) { panic("unreachable"); }
+static void unreachable(void) { panic("unreachable"); }
 
-void *allocate(size_t size) {
+static void *allocate(size_t size) {
   void *ret = malloc(size);
   if (ret) {
     return ret;
@@ -42,7 +41,7 @@ void *allocate(size_t size) {
   return NULL;
 }
 
-void *allocate_zeroed(size_t size, size_t count) {
+static void *allocateZeroed(size_t size, size_t count) {
   void *ret = calloc(count, size);
   if (ret) {
     return ret;
@@ -51,7 +50,7 @@ void *allocate_zeroed(size_t size, size_t count) {
   return NULL;
 }
 
-void *reallocate(void *p, size_t size) {
+static void *reallocate(void *p, size_t size) {
   void *ret = realloc(p, size);
   if (ret) {
     return ret;
@@ -61,1189 +60,1189 @@ void *reallocate(void *p, size_t size) {
 }
 
 #define new(type) allocate(sizeof(type))
-#define make(type, count) allocate_zeroed(sizeof(type), count)
+#define make(type, count) allocateZeroed(sizeof(type), count)
 
-static volatile int _NEXT_UID = 0;
+static volatile int nextUID = 0;
 
-static int _next_uid(void) {
-  _NEXT_UID++;
-  return _NEXT_UID;
+static int newUID(void) {
+  nextUID++;
+  return nextUID;
 }
 
-static int _max(int a, int b) { return a > b ? a : b; }
+static int max(int a, int b) { return a > b ? a : b; }
 
 struct node {
-  struct node *left, *right;
-  int key, height;
+  struct node *Left, *Right;
+  int Key, Height;
 };
 
-void node_default(struct node *node) {
-  node->left = NULL;
-  node->right = NULL;
-  node->height = 1;
+static void node_Default(struct node *node) {
+  node->Left = NULL;
+  node->Right = NULL;
+  node->Height = 1;
 }
 
-static int _node_height(struct node *node) { return !node ? 0 : node->height; }
+static int node_height(struct node *node) { return !node ? 0 : node->Height; }
 
-static struct node *_node_right_rotate(struct node *x) {
-  struct node *y = x->left;
-  struct node *z = y->right;
-  y->right = x;
-  x->left = z;
-  x->height = _max(_node_height(x->left), _node_height(x->right)) + 1;
-  y->height = _max(_node_height(y->left), _node_height(y->right)) + 1;
+static struct node *node_rightRotate(struct node *x) {
+  struct node *y = x->Left;
+  struct node *z = y->Right;
+  y->Right = x;
+  x->Left = z;
+  x->Height = max(node_height(x->Left), node_height(x->Right)) + 1;
+  y->Height = max(node_height(y->Left), node_height(y->Right)) + 1;
   return y;
 }
 
-static struct node *_node_left_rotate(struct node *x) {
-  struct node *y = x->right;
-  struct node *z = y->left;
-  y->left = x;
-  x->right = z;
-  x->height = _max(_node_height(x->left), _node_height(x->right)) + 1;
-  y->height = _max(_node_height(y->left), _node_height(y->right)) + 1;
+static struct node *node_leftRotate(struct node *x) {
+  struct node *y = x->Right;
+  struct node *z = y->Left;
+  y->Left = x;
+  x->Right = z;
+  x->Height = max(node_height(x->Left), node_height(x->Right)) + 1;
+  y->Height = max(node_height(y->Left), node_height(y->Right)) + 1;
   return y;
 }
 
-static int _node_balance(struct node *node) {
-  return !node ? 0 : _node_height(node->left) - _node_height(node->right);
+static int node_balance(struct node *node) {
+  return !node ? 0 : node_height(node->Left) - node_height(node->Right);
 }
 
-struct node *tree_insert(struct node *root, struct node *other) {
+static struct node *tree_Insert(struct node *root, struct node *other) {
   if (!root) {
     return other;
   }
 
-  if (other->key < root->key) {
-    root->left = tree_insert(root->left, other);
-  } else if (other->key > root->key) {
-    root->right = tree_insert(root->right, other);
+  if (other->Key < root->Key) {
+    root->Left = tree_Insert(root->Left, other);
+  } else if (other->Key > root->Key) {
+    root->Right = tree_Insert(root->Right, other);
   } else {
     return root;
   }
 
-  root->height = _max(_node_height(root->left), _node_height(root->right)) + 1;
+  root->Height = max(node_height(root->Left), node_height(root->Right)) + 1;
 
-  int balance = _node_balance(root);
-  if (balance > 1 && other->key < root->left->key) {
-    return _node_right_rotate(root);
+  int balance = node_balance(root);
+  if (balance > 1 && other->Key < root->Left->Key) {
+    return node_rightRotate(root);
   }
-  if (balance < -1 && other->key > root->right->key) {
-    return _node_left_rotate(root);
+  if (balance < -1 && other->Key > root->Right->Key) {
+    return node_leftRotate(root);
   }
-  if (balance > 1 && other->key > root->left->key) {
-    root->left = _node_left_rotate(root->left);
-    return _node_right_rotate(root);
+  if (balance > 1 && other->Key > root->Left->Key) {
+    root->Left = node_leftRotate(root->Left);
+    return node_rightRotate(root);
   }
-  if (balance < -1 && other->key < root->right->key) {
-    root->right = _node_right_rotate(root->right);
-    return _node_left_rotate(root);
+  if (balance < -1 && other->Key < root->Right->Key) {
+    root->Right = node_rightRotate(root->Right);
+    return node_leftRotate(root);
   }
 
   return root;
 }
 
-void tree_iter(void *data, struct node *root,
-               void (*f)(void *data, struct node *node)) {
+/*static*/ void tree_Iter(void *data, struct node *root,
+                          void (*f)(void *data, struct node *node)) {
   if (!root) {
     return;
   }
-  tree_iter(data, root->left, f);
+  tree_Iter(data, root->Left, f);
   f(data, root);
-  tree_iter(data, root->right, f);
+  tree_Iter(data, root->Right, f);
 }
 
-void tree_free(struct node *root, void *(*downcast)(struct node *node)) {
+/*static*/ void tree_Free(struct node *root,
+                          void *(*downcast)(struct node *node)) {
   if (!root) {
     return;
   }
-  tree_free(root->left, downcast);
-  tree_free(root->right, downcast);
+  tree_Free(root->Left, downcast);
+  tree_Free(root->Right, downcast);
   free(downcast(root));
 }
 
 struct slice {
-  uint8_t *data;
-  size_t elem_size, size, cap;
+  uint8_t *Data;
+  size_t ElemSize, Size, Cap;
 };
 
-void slice_init(struct slice *s, size_t elem_size) {
-  s->elem_size = elem_size;
-  s->size = 0;
-  s->cap = 4;
-  s->data = allocate_zeroed(elem_size, s->cap);
+static void slice_Init(struct slice *s, size_t elemSize) {
+  s->ElemSize = elemSize;
+  s->Size = 0;
+  s->Cap = 4;
+  s->Data = allocateZeroed(elemSize, s->Cap);
 }
 
-void slice_append(struct slice *s, void *value) {
-  if (s->size == s->cap) {
-    s->cap *= 2;
-    s->data = reallocate(s->data, s->cap * s->elem_size);
+static void slice_Append(struct slice *s, void *value) {
+  if (s->Size == s->Cap) {
+    s->Cap *= 2;
+    s->Data = reallocate(s->Data, s->Cap * s->ElemSize);
   }
-  memcpy(s->data + s->size * s->elem_size, value, s->elem_size);
-  s->size++;
+  memcpy(s->Data + s->Size * s->ElemSize, value, s->ElemSize);
+  s->Size++;
 }
 
-void slice_iter(void *data, struct slice *s,
-                void (*f)(void *data, void *elem)) {
-  uint8_t *elem = s->data;
-  for (size_t i = 0; i < s->size; i++, elem += s->elem_size) {
+static void slice_Iter(void *data, struct slice *s,
+                       void (*f)(void *data, void *elem)) {
+  uint8_t *elem = s->Data;
+  for (size_t i = 0; i < s->Size; i++, elem += s->ElemSize) {
     f(data, elem);
   }
 }
 
-void slice_free(struct slice *s) {
-  free(s->data);
-  s->data = NULL;
-  s->size = 0;
-  s->cap = 0;
+/*static*/ void slice_Free(struct slice *s) {
+  free(s->Data);
+  s->Data = NULL;
+  s->Size = 0;
+  s->Cap = 0;
 }
 
 struct entry {
-  struct entry *next;
-  const char *key;
-  int val;
+  struct entry *Next;
+  const char *Key;
+  int Val;
 };
 
 struct map {
-  struct entry **buckets;
-  size_t size, cap;
+  struct entry **Buckets;
+  size_t Size, Cap;
 };
 
-void map_default(struct map *m) {
-  m->buckets = make(struct entry *, m->cap);
-  m->size = 0;
-  m->cap = 8;
+static void map_Default(struct map *m) {
+  m->Buckets = make(struct entry *, m->Cap);
+  m->Size = 0;
+  m->Cap = 8;
 }
 
-static size_t _hash(const char *key, size_t cap) {
-  size_t hash = 0;
+static size_t map_hash(const char *key, size_t cap) {
+  size_t h = 0;
   for (char c = *key; c != '\0'; c++) {
-    hash = hash * 31 + (size_t)c;
+    h = h * 31 + (size_t)c;
   }
-  return hash % cap;
+  return h % cap;
 }
 
-static void _map_rehash(struct map *m) {
-  size_t new_capacity = m->cap * 2;
-  struct entry **new_buckets = make(struct entry *, new_capacity);
+static void map_rehash(struct map *m) {
+  size_t newCap = m->Cap * 2;
+  struct entry **newBuckets = make(struct entry *, newCap);
 
-  for (size_t i = 0; i < m->cap; i++) {
-    struct entry *e = m->buckets[i];
+  for (size_t i = 0; i < m->Cap; i++) {
+    struct entry *e = m->Buckets[i];
     while (e) {
-      struct entry *next = e->next;
-      size_t index = _hash(e->key, new_capacity);
-      e->next = new_buckets[index];
-      new_buckets[index] = e;
+      struct entry *next = e->Next;
+      size_t index = map_hash(e->Key, newCap);
+      e->Next = newBuckets[index];
+      newBuckets[index] = e;
       e = next;
     }
   }
 
-  free(m->buckets);
-  m->buckets = new_buckets;
-  m->cap = new_capacity;
+  free(m->Buckets);
+  m->Buckets = newBuckets;
+  m->Cap = newCap;
 }
 
-bool map_set(struct map *m, const char *key, int val) {
-  if ((double)m->size / (double)m->cap >= 1.0) {
-    _map_rehash(m);
+static bool map_Set(struct map *m, const char *key, int val) {
+  if ((double)m->Size / (double)m->Cap >= 1.0) {
+    map_rehash(m);
   }
-  size_t index = _hash(key, m->cap);
-  struct entry *e = m->buckets[index];
+  size_t index = map_hash(key, m->Cap);
+  struct entry *e = m->Buckets[index];
   while (e) {
-    if (strcmp(e->key, key) == 0) {
-      e->val = val;
+    if (strcmp(e->Key, key) == 0) {
+      e->Val = val;
       return true;
     }
-    e = e->next;
+    e = e->Next;
   }
   e = new (struct entry);
-  e->key = key;
-  e->val = val;
-  e->next = m->buckets[index];
-  m->buckets[index] = e;
-  m->size++;
+  e->Key = key;
+  e->Val = val;
+  e->Next = m->Buckets[index];
+  m->Buckets[index] = e;
+  m->Size++;
   return false;
 }
 
-bool map_get(struct map *m, const char *key, int *val) {
-  size_t index = _hash(key, m->cap);
-  struct entry *e = m->buckets[index];
+static bool map_Get(struct map *m, const char *key, int *val) {
+  size_t index = map_hash(key, m->Cap);
+  struct entry *e = m->Buckets[index];
   while (e) {
-    if (strcmp(e->key, key) == 0) {
-      *val = e->val;
+    if (strcmp(e->Key, key) == 0) {
+      *val = e->Val;
       return true;
     }
-    e = e->next;
+    e = e->Next;
   }
   return false;
 }
 
-void map_free(struct map *m) {
-  for (size_t i = 0; i < m->cap; i++) {
-    struct entry *e = m->buckets[i];
+static void map_Free(struct map *m) {
+  for (size_t i = 0; i < m->Cap; i++) {
+    struct entry *e = m->Buckets[i];
     while (e) {
-      struct entry *next = e->next;
-      if (e->key) {
-        free((void *)e->key);
+      struct entry *next = e->Next;
+      if (e->Key) {
+        free((void *)e->Key);
       }
       free(e);
       e = next;
     }
   }
-  free(m->buckets);
-  m->buckets = NULL;
+  free(m->Buckets);
+  m->Buckets = NULL;
 }
 
-void map_merge(struct map *lhs, struct map *rhs) {
-  for (size_t i = 0; i < rhs->cap; i++) {
-    struct entry *rhs_e = rhs->buckets[i];
+static void map_Merge(struct map *lhs, struct map *rhs) {
+  for (size_t i = 0; i < rhs->Cap; i++) {
+    struct entry *rhs_e = rhs->Buckets[i];
     while (rhs_e) {
-      struct entry *rhs_next = rhs_e->next;
-      if (map_set(lhs, rhs_e->key, rhs_e->val)) {
-        free((void *)rhs_e->key);
-        rhs_e->key = NULL;
+      struct entry *rhs_next = rhs_e->Next;
+      if (map_Set(lhs, rhs_e->Key, rhs_e->Val)) {
+        free((void *)rhs_e->Key);
+        rhs_e->Key = NULL;
       }
       rhs_e = rhs_next;
     }
   }
-  map_free(rhs);
+  map_Free(rhs);
 }
 
-enum object_kind { OBJ_NUM = 1 };
+enum objectKind { object_Num = 1 };
 
 struct object {
-  enum object_kind kind;
-  uint8_t marked;
-  struct object *next;
+  enum objectKind Kind;
+  bool Marked;
+  struct object *Next;
 };
 
-void object_init(struct object *o, enum object_kind kind, struct object *next) {
-  o->kind = kind;
-  o->marked = 0;
-  o->next = next;
+static void object_Init(struct object *o, enum objectKind kind,
+                        struct object *next) {
+  o->Kind = kind;
+  o->Marked = 0;
+  o->Next = next;
 }
 
-void object_mark(struct object *o) {
-  if (o->marked) {
+static void object_Mark(struct object *o) {
+  if (o->Marked) {
     return;
   }
-  o->marked = 1;
+  o->Marked = 1;
   // TODO: Mark other objects from the members.
 }
 
 struct gc {
-  struct object *stack[256];
-  size_t stack_size, reachable, max;
-  struct object *root;
+  struct object *Stack[256];
+  size_t StackSize, Reachable, Max;
+  struct object *Root;
 };
 
-void gc_default(struct gc *c) {
-  c->stack_size = 0;
-  c->reachable = 0;
-  c->max = 8;
-  c->root = NULL;
+/*static*/ void gc_Default(struct gc *c) {
+  c->StackSize = 0;
+  c->Reachable = 0;
+  c->Max = 8;
+  c->Root = NULL;
 }
 
-void gc_push(struct gc *gc, struct object *value) {
-  if (gc->stack_size >= sizeof(gc->stack) / sizeof(struct object *)) {
-    printf("stack overflow\n");
+/*static*/ void gc_Push(struct gc *gc, struct object *value) {
+  if (gc->StackSize >= sizeof(gc->Stack) / sizeof(struct object *)) {
+    printf("Stack overflow\n");
     exit(1);
   }
-  gc->stack[gc->stack_size] = value;
-  gc->stack_size++;
+  gc->Stack[gc->StackSize] = value;
+  gc->StackSize++;
 }
 
-struct object *gc_pop(struct gc *gc) {
-  if (gc->stack_size <= 0) {
-    printf("stack overflow\n");
+/*static*/ struct object *gc_Pop(struct gc *gc) {
+  if (gc->StackSize <= 0) {
+    printf("Stack overflow\n");
     exit(1);
   }
-  struct object *ret = gc->stack[gc->stack_size];
-  gc->stack_size--;
+  struct object *ret = gc->Stack[gc->StackSize];
+  gc->StackSize--;
   return ret;
 }
 
-void gc_mark(struct gc *vm) {
-  for (size_t i = 0; i < vm->stack_size; i++) {
-    object_mark(vm->stack[i]);
+static void gc_Mark(struct gc *vm) {
+  for (size_t i = 0; i < vm->StackSize; i++) {
+    object_Mark(vm->Stack[i]);
   }
 }
 
-void gc_sweep(struct gc *vm) {
-  struct object **object = &vm->root;
+static void gc_Sweep(struct gc *vm) {
+  struct object **object = &vm->Root;
   while (*object) {
-    if ((*object)->marked) {
-      (*object)->marked = 0;
-      object = &(*object)->next;
+    if ((*object)->Marked) {
+      (*object)->Marked = 0;
+      object = &(*object)->Next;
       continue;
     }
     struct object *unreached = *object;
-    *object = unreached->next;
+    *object = unreached->Next;
     free(unreached);
-    vm->reachable--;
+    vm->Reachable--;
   }
 }
 
-void gc_run(struct gc *vm) {
-  gc_mark(vm);
-  gc_sweep(vm);
-  vm->max = vm->reachable == 0 ? 8 : vm->reachable * 2;
+static void gc_Run(struct gc *vm) {
+  gc_Mark(vm);
+  gc_Sweep(vm);
+  vm->Max = vm->Reachable == 0 ? 8 : vm->Reachable * 2;
 }
 
-struct object *gc_object_new(struct gc *vm, enum object_kind kind) {
-  if (vm->reachable == vm->max) {
-    gc_run(vm);
+/*static*/ struct object *gc_NewObject(struct gc *vm, enum objectKind kind) {
+  if (vm->Reachable == vm->Max) {
+    gc_Run(vm);
   }
   struct object *o = new (struct object);
-  object_init(o, kind, vm->root);
-  vm->root = o;
-  vm->reachable++;
+  object_Init(o, kind, vm->Root);
+  vm->Root = o;
+  vm->Reachable++;
   return o;
 }
 
-void gc_close(struct gc *vm) {
-  vm->stack_size = 0;
-  gc_run(vm);
+/*static*/ void gc_Free(struct gc *vm) {
+  vm->StackSize = 0;
+  gc_Run(vm);
 }
 
 struct loc {
-  size_t pos, ln, col;
+  size_t Pos, Ln, Col;
 };
 
-void loc_default(struct loc *l) {
-  l->pos = 0;
-  l->ln = 1;
-  l->col = 1;
+static void loc_Default(struct loc *l) {
+  l->Pos = 0;
+  l->Ln = 1;
+  l->Col = 1;
 }
 
-void loc_next_line(struct loc *l) {
-  l->pos++;
-  l->ln++;
-  l->col = 1;
+static void loc_NextLine(struct loc *l) {
+  l->Pos++;
+  l->Ln++;
+  l->Col = 1;
 }
 
-void loc_next_column(struct loc *l) {
-  l->pos++;
-  l->col++;
+static void loc_NextColumn(struct loc *l) {
+  l->Pos++;
+  l->Col++;
 }
 
 struct span {
-  struct loc start, end;
+  struct loc Start, End;
 };
 
-struct source {
-  struct loc loc;
-  FILE *f;
-  bool failed, atom, newline_sensitive;
+struct Source {
+  struct loc Loc;
+  FILE *File;
+  bool Failed, Atom, NewlineSensitive;
 };
 
-void source_init(struct source *s, FILE *f) {
-  loc_default(&s->loc);
-  s->f = f;
-  s->failed = false;
-  s->atom = false;
-  s->newline_sensitive = false;
+static void source_Init(struct Source *s, FILE *f) {
+  loc_Default(&s->Loc);
+  s->File = f;
+  s->Failed = false;
+  s->Atom = false;
+  s->NewlineSensitive = false;
 }
 
-size_t source_size(struct source *s) {
-  fseek(s->f, 0, SEEK_END);
-  long size = ftell(s->f);
-  fseek(s->f, (long)s->loc.pos, SEEK_SET);
+static size_t source_Size(struct Source *s) {
+  fseek(s->File, 0, SEEK_END);
+  long size = ftell(s->File);
+  fseek(s->File, (long)s->Loc.Pos, SEEK_SET);
   return (size_t)size;
 }
 
-const char *source_text(struct source *s, struct span span) {
-  size_t size = span.end.pos - span.start.pos + 1;
+static const char *source_Text(struct Source *s, struct span span) {
+  size_t size = span.End.Pos - span.Start.Pos + 1;
   char *text = allocate(size);
-  fseek(s->f, (long)span.start.pos, SEEK_SET);
-  return fgets(text, (int)size, s->f);
+  fseek(s->File, (long)span.Start.Pos, SEEK_SET);
+  return fgets(text, (int)size, s->File);
 }
 
-char source_peek(struct source *s) {
-  if (fseek(s->f, (long)s->loc.pos, SEEK_SET) != 0) {
+static char source_Peek(struct Source *s) {
+  if (fseek(s->File, (long)s->Loc.Pos, SEEK_SET) != 0) {
     return -1;
   }
-  int c = fgetc(s->f);
+  int c = fgetc(s->File);
   if (c == EOF) {
     return -1;
   }
   return (char)c;
 }
 
-char source_next(struct source *s) {
-  char next = source_peek(s);
+static char source_Next(struct Source *s) {
+  char next = source_Peek(s);
   if (next < 0) {
     return -1;
   }
   if (next == '\n') {
-    loc_next_line(&s->loc);
+    loc_NextLine(&s->Loc);
     return next;
   }
-  loc_next_column(&s->loc);
+  loc_NextColumn(&s->Loc);
   return next;
 }
 
-struct source *source_back(struct source *s, struct loc loc) {
-  s->loc = loc;
-  s->failed = false;
+static struct Source *source_Back(struct Source *s, struct loc loc) {
+  s->Loc = loc;
+  s->Failed = false;
   return s;
 }
 
-struct source *source_eat(struct source *s, char c) {
-  if (source_next(s) != c) {
-    s->failed = true;
+static struct Source *source_Eat(struct Source *s, char c) {
+  if (source_Next(s) != c) {
+    s->Failed = true;
   }
   return s;
 }
 
-struct source *skip_spaces(struct source *s) {
-  while (1) {
-    char c = source_peek(s);
-    if (c < 0 || (s->newline_sensitive && c == '\n') || !isspace(c)) {
+static struct Source *source_SkipSpaces(struct Source *s) {
+  while (true) {
+    char c = source_Peek(s);
+    if (c < 0 || (s->NewlineSensitive && c == '\n') || !isspace(c)) {
       break;
     }
-    s = source_eat(s, c);
+    s = source_Eat(s, c);
   }
   return s;
 }
 
-struct parser;
-struct expr;
-struct def;
+struct Parser;
+struct Expr;
+struct Def;
 
-struct range {
-  char from, to;
+struct Range {
+  char From, To;
 };
 
-union parser_ctx {
-  const char *word;
-  struct range range;
-  struct parser *parser;
-  struct parser **parsers;
+union ParserCtx {
+  const char *Word;
+  struct Range Range;
+  struct Parser *Parser;
+  struct Parser **Parsers;
 
-  struct span *span;
-  struct slice *slice;
-  struct node **nodes;
-  struct expr *expr;
-  struct def *def;
+  struct span *Span;
+  struct slice *Slice;
+  struct node **Nodes;
+  struct Expr *Expr;
+  struct Def *Def;
 };
 
-struct parser {
-  struct source *(*parse)(union parser_ctx *ctx, struct source *s);
-  union parser_ctx ctx;
+struct Parser {
+  struct Source *(*Parse)(union ParserCtx *ctx, struct Source *s);
+  union ParserCtx Ctx;
 };
 
-struct source *soi(union parser_ctx *ctx, struct source *s) {
+static struct Source *soi(union ParserCtx *ctx, struct Source *s) {
   (void)ctx;
-  if (s->loc.pos != 0) {
-    s->failed = true;
+  if (s->Loc.Pos != 0) {
+    s->Failed = true;
   }
   return s;
 }
 
-struct source *eoi(union parser_ctx *ctx, struct source *s) {
+static struct Source *eoi(union ParserCtx *ctx, struct Source *s) {
   (void)ctx;
-  if (s->loc.pos != source_size(s)) {
-    s->failed = true;
+  if (s->Loc.Pos != source_Size(s)) {
+    s->Failed = true;
   }
   return s;
 }
 
-static struct parser _SOI = {soi, {.word = NULL}};
-static struct parser _EOI = {eoi, {.word = NULL}};
+static struct Parser Soi = {.Parse = soi};
+static struct Parser Eoi = {.Parse = eoi};
 
-struct source *parse_atom(struct parser *parser, struct source *s) {
-  int atom = s->atom;
-  s->atom = true;
-  s = parser->parse(&parser->ctx, s);
-  s->atom = atom;
+static struct Source *parseAtom(struct Parser *parser, struct Source *s) {
+  int atom = s->Atom;
+  s->Atom = true;
+  s = parser->Parse(&parser->Ctx, s);
+  s->Atom = atom;
   return s;
 }
 
-struct source *word(union parser_ctx *ctx, struct source *s) {
-  const char *word = ctx->word;
+static struct Source *word(union ParserCtx *ctx, struct Source *s) {
+  const char *word = ctx->Word;
   size_t i = 0;
   for (char c = word[i]; c != '\0'; i++, c = word[i]) {
-    s = source_eat(s, c);
-    if (s->failed) {
+    s = source_Eat(s, c);
+    if (s->Failed) {
       break;
     }
   }
   return s;
 }
 
-static struct parser _LPAREN = {word, {.word = "("}};
-static struct parser _RPAREN = {word, {.word = ")"}};
-static struct parser _COMMA = {word, {.word = ","}};
-static struct parser _UNDER = {word, {.word = "_"}};
-static struct parser _NEWLINE = {word, {.word = "\n"}};
-static struct parser _SEMICOLON = {word, {.word = ";"}};
-static struct parser _ASSIGN = {word, {.word = "="}};
-static struct parser _IF = {word, {.word = "if"}};
-static struct parser _THEN = {word, {.word = "then"}};
-static struct parser _ELSE = {word, {.word = "else"}};
-static struct parser _ARROW = {word, {.word = "=>"}};
-static struct parser _UNIT = {word, {.word = "()"}};
-static struct parser _FALSE = {word, {.word = "false"}};
-static struct parser _TRUE = {word, {.word = "true"}};
+static struct Parser LParen = {word, {.Word = "("}};
+static struct Parser RParen = {word, {.Word = ")"}};
+static struct Parser Comma = {word, {.Word = ","}};
+static struct Parser Under = {word, {.Word = "_"}};
+static struct Parser Newline = {word, {.Word = "\n"}};
+static struct Parser Semicolon = {word, {.Word = ";"}};
+static struct Parser Assign = {word, {.Word = "="}};
+static struct Parser If = {word, {.Word = "if"}};
+static struct Parser Then = {word, {.Word = "then"}};
+static struct Parser Else = {word, {.Word = "else"}};
+static struct Parser Arrow = {word, {.Word = "=>"}};
+static struct Parser Unit = {word, {.Word = "()"}};
+static struct Parser False = {word, {.Word = "false"}};
+static struct Parser True = {word, {.Word = "true"}};
 
-struct source *range(union parser_ctx *ctx, struct source *s) {
-  char from = ctx->range.from, to = ctx->range.to;
-  char c = source_peek(s);
+static struct Source *range(union ParserCtx *ctx, struct Source *s) {
+  char from = ctx->Range.From, to = ctx->Range.To;
+  char c = source_Peek(s);
   if (c < from || c > to) {
-    s->failed = true;
+    s->Failed = true;
     return s;
   }
-  return source_eat(s, c);
+  return source_Eat(s, c);
 }
 
-// static struct parser _ASCII_BIN_DIGIT = {range, {.range = {'0', '1'}}};
-// static struct parser _ASCII_OCT_DIGIT = {range, {.range = {'0', '7'}}};
-static struct parser _ASCII_DIGIT = {range, {.range = {'0', '9'}}};
-// static struct parser _ASCII_NONZERO_DIGIT = {range, {.range = {'1', '9'}}};
+// static struct Parser AsciiBinDigit = {Range, {.Range = {'0', '1'}}};
+// static struct Parser AsciiOctDigit = {Range, {.Range = {'0', '7'}}};
+static struct Parser AsciiDigit = {range, {.Range = {'0', '9'}}};
+// static struct Parser AsciiNonZeroDigit = {Range, {.Range = {'1', '9'}}};
 
-struct source *parse_lowercase(struct span *span, struct source *s) {
-  struct loc start = s->loc;
+static struct Source *parseLowercase(struct span *span, struct Source *s) {
+  struct loc start = s->Loc;
 
-  char first = source_peek(s);
+  char first = source_Peek(s);
   if (first < 0 || !islower(first) || !isalpha(first)) {
-    s->failed = true;
+    s->Failed = true;
     return s;
   }
-  s = source_eat(s, first);
+  s = source_Eat(s, first);
 
-  while (1) {
-    char c = source_peek(s);
+  while (true) {
+    char c = source_Peek(s);
     if (!(islower(c) && isalpha(c)) && c != '_') {
       break;
     }
-    s = source_eat(s, c);
+    s = source_Eat(s, c);
   }
 
-  *span = (struct span){start, s->loc};
+  *span = (struct span){start, s->Loc};
   return s;
 }
 
-struct source *lowercase(union parser_ctx *ctx, struct source *s) {
-  return parse_lowercase(ctx->span, s);
+static struct Source *lowercase(union ParserCtx *ctx, struct Source *s) {
+  return parseLowercase(ctx->Span, s);
 }
 
-struct source *parse_all(struct parser **parsers, struct source *s) {
-  struct parser **parser = parsers;
+static struct Source *parseAll(struct Parser **parsers, struct Source *s) {
+  struct Parser **parser = parsers;
   while (*parser) {
-    s = (*parser)->parse(&(*parser)->ctx, s);
-    if (s->failed) {
+    s = (*parser)->Parse(&(*parser)->Ctx, s);
+    if (s->Failed) {
       return s;
     }
     parser++;
-    if (!s->atom && *parser) {
-      s = skip_spaces(s);
+    if (!s->Atom && *parser) {
+      s = source_SkipSpaces(s);
     }
   }
   return s;
 }
 
-struct source *all(union parser_ctx *ctx, struct source *s) {
-  return parse_all(ctx->parsers, s);
+static struct Source *all(union ParserCtx *ctx, struct Source *s) {
+  return parseAll(ctx->Parsers, s);
 }
 
-struct source *parse_any(struct parser **parsers, struct source *s) {
-  struct loc loc = s->loc;
-  for (struct parser **parser = parsers; *parser; parser++) {
-    s = (*parser)->parse(&(*parser)->ctx, s);
-    if (!s->failed) {
+static struct Source *parseAny(struct Parser **parsers, struct Source *s) {
+  struct loc loc = s->Loc;
+  for (struct Parser **parser = parsers; *parser; parser++) {
+    s = (*parser)->Parse(&(*parser)->Ctx, s);
+    if (!s->Failed) {
       return s;
     }
-    s = source_back(s, loc);
+    s = source_Back(s, loc);
   }
-  s->failed = true;
+  s->Failed = true;
   return s;
 }
 
-struct source *any(union parser_ctx *ctx, struct source *s) {
-  return parse_any(ctx->parsers, s);
+static struct Source *any(union ParserCtx *ctx, struct Source *s) {
+  return parseAny(ctx->Parsers, s);
 }
 
-static struct parser *_END_SYMBOLS[] = {&_SEMICOLON, &_NEWLINE, NULL};
-static struct parser _END = {any, {.parsers = _END_SYMBOLS}};
+static struct Parser *EndSymbols[] = {&Semicolon, &Newline, NULL};
+static struct Parser End = {any, {.Parsers = EndSymbols}};
 
-struct source *parse_end(struct source *s) {
-  int newline_sensitive = s->newline_sensitive;
-  s->newline_sensitive = true;
-  s = skip_spaces(s);
-  s = _END.parse(&_END.ctx, s);
-  s->newline_sensitive = newline_sensitive;
+static struct Source *parseEnd(struct Source *s) {
+  int sensitive = s->NewlineSensitive;
+  s->NewlineSensitive = true;
+  s = source_SkipSpaces(s);
+  s = End.Parse(&End.Ctx, s);
+  s->NewlineSensitive = sensitive;
   return s;
 }
 
-struct source *many(union parser_ctx *ctx, struct source *s) {
-  while (1) {
-    struct loc loc = s->loc;
-    s = ctx->parser->parse(&ctx->parser->ctx, s);
-    if (s->failed) {
-      return source_back(s, loc);
+static struct Source *many(union ParserCtx *ctx, struct Source *s) {
+  while (true) {
+    struct loc loc = s->Loc;
+    s = ctx->Parser->Parse(&ctx->Parser->Ctx, s);
+    if (s->Failed) {
+      return source_Back(s, loc);
     }
-    if (!s->atom) {
-      s = skip_spaces(s);
+    if (!s->Atom) {
+      s = source_SkipSpaces(s);
     }
   }
 }
 
-struct source *option(union parser_ctx *ctx, struct source *s) {
-  struct loc loc = s->loc;
-  s = ctx->parser->parse(&ctx->parser->ctx, s);
-  if (s->failed) {
-    return source_back(s, loc);
+static struct Source *option(union ParserCtx *ctx, struct Source *s) {
+  struct loc loc = s->Loc;
+  s = ctx->Parser->Parse(&ctx->Parser->Ctx, s);
+  if (s->Failed) {
+    return source_Back(s, loc);
   }
   return s;
 }
 
-enum expr_kind {
-  EXPR_APP = 1,
-  EXPR_ITE,
-  EXPR_LAM,
-  EXPR_NUM,
-  EXPR_UNIT,
-  EXPR_FALSE,
-  EXPR_TRUE,
-  EXPR_UNRESOLVED,
-  EXPR_RESOLVED,
+enum ExprKind {
+  Expr_App = 1,
+  Expr_Ite,
+  Expr_Lam,
+  Expr_Num,
+  Expr_Unit,
+  Expr_False,
+  Expr_True,
+  Expr_Unresolved,
+  Expr_Resolved,
 };
-union expr_data {
-  struct app *app;
-  struct ite *ite;
-  struct lambda *lam;
-  struct span span;
-  int id;
+union ExprData {
+  struct App *App;
+  struct Ite *Ite;
+  struct Lambda *Lam;
+  struct span Span;
+  int ID;
 };
-struct expr {
-  enum expr_kind kind;
-  union expr_data data;
+struct Expr {
+  enum ExprKind kind;
+  union ExprData data;
 };
 
-struct source *parse_expr(struct expr *expr, struct source *s);
+struct Source *ParseExpr(struct Expr *expr, struct Source *s);
 
-struct source *expr(union parser_ctx *ctx, struct source *s) {
-  return parse_expr(ctx->expr, s);
+struct Source *Expr(union ParserCtx *ctx, struct Source *s) {
+  return ParseExpr(ctx->Expr, s);
 }
 
-struct app {
-  struct expr f;
-  struct slice args;
+struct App {
+  struct Expr F;
+  struct slice Args;
 };
 
-void app_default(struct app *a) { slice_init(&a->args, sizeof(struct expr)); }
+void App_Default(struct App *a) { slice_Init(&a->Args, sizeof(struct Expr)); }
 
-struct source *arg(union parser_ctx *ctx, struct source *s) {
-  struct expr a;
-  s = parse_expr(&a, s);
-  if (!s->failed) {
-    slice_append(ctx->slice, &a);
+struct Source *Arg(union ParserCtx *ctx, struct Source *s) {
+  struct Expr a;
+  s = ParseExpr(&a, s);
+  if (!s->Failed) {
+    slice_Append(ctx->Slice, &a);
   }
   return s;
 }
 
-struct source *args(union parser_ctx *ctx, struct source *s) {
-  struct parser *no_args[] = {&_LPAREN, &_RPAREN, NULL};
-  struct parser all_no_args = {all, {.parsers = no_args}};
+struct Source *Args(union ParserCtx *ctx, struct Source *s) {
+  struct Parser *no_args[] = {&LParen, &RParen, NULL};
+  struct Parser all_no_args = {all, {.Parsers = no_args}};
 
-  struct parser one_arg = {arg, {.slice = ctx->slice}};
-  struct parser *other_args[] = {&_COMMA, &one_arg, NULL};
-  struct parser all_other_args = {all, {.parsers = other_args}};
-  struct parser many_other_args = {many, {.parser = &all_other_args}};
-  struct parser *multi_args[] = {&_LPAREN, &one_arg, &many_other_args, &_RPAREN,
+  struct Parser one_arg = {Arg, {.Slice = ctx->Slice}};
+  struct Parser *other_args[] = {&Comma, &one_arg, NULL};
+  struct Parser all_other_args = {all, {.Parsers = other_args}};
+  struct Parser many_other_args = {many, {.Parser = &all_other_args}};
+  struct Parser *multi_args[] = {&LParen, &one_arg, &many_other_args, &RParen,
                                  NULL};
-  struct parser all_multi_args = {all, {.parsers = multi_args}};
+  struct Parser all_multi_args = {all, {.Parsers = multi_args}};
 
-  struct parser *branches[] = {&all_no_args, &all_multi_args, NULL};
-  return parse_any(branches, s);
+  struct Parser *branches[] = {&all_no_args, &all_multi_args, NULL};
+  return parseAny(branches, s);
 }
 
-static struct source *_expr_ref(union parser_ctx *ctx, struct source *s);
-static struct source *_expr_paren(union parser_ctx *ctx, struct source *s);
+static struct Source *Expr_ref(union ParserCtx *ctx, struct Source *s);
+static struct Source *Expr_paren(union ParserCtx *ctx, struct Source *s);
 
-static struct source *_expr_app(union parser_ctx *ctx, struct source *s) {
-  struct app *app = new (struct app);
-  app_default(app);
+static struct Source *Expr_app(union ParserCtx *ctx, struct Source *s) {
+  struct App *app = new (struct App);
+  App_Default(app);
 
-  struct parser f_ref = {_expr_ref, {.expr = &app->f}};
-  struct parser f_expr = {_expr_paren, {.expr = &app->f}};
-  struct parser *f_parsers[] = {&f_ref, &f_expr, NULL};
-  struct parser f = {any, {.parsers = f_parsers}};
+  struct Parser fnRef = {Expr_ref, {.Expr = &app->F}};
+  struct Parser fnExpr = {Expr_paren, {.Expr = &app->F}};
+  struct Parser *fnParsers[] = {&fnRef, &fnExpr, NULL};
+  struct Parser f = {any, {.Parsers = fnParsers}};
 
-  struct parser x = {args, {.slice = &app->args}};
+  struct Parser xs = {Args, {.Slice = &app->Args}};
 
-  struct parser *parsers[] = {&f, &x, NULL};
-  s = parse_all(parsers, s);
-  if (s->failed) {
+  struct Parser *parsers[] = {&f, &xs, NULL};
+  s = parseAll(parsers, s);
+  if (s->Failed) {
     free(app);
     return s;
   }
-  ctx->expr->data.app = app;
-  ctx->expr->kind = EXPR_APP;
+  ctx->Expr->data.App = app;
+  ctx->Expr->kind = Expr_App;
   return s;
 }
 
-struct ite {
-  struct expr i, t, e;
+struct Ite {
+  struct Expr i, t, e;
 };
 
-static struct source *_expr_ite(union parser_ctx *ctx, struct source *s) {
-  struct ite *ite = new (struct ite);
-  struct parser i = {expr, {.expr = &ite->i}};
-  struct parser t = {expr, {.expr = &ite->t}};
-  struct parser e = {expr, {.expr = &ite->e}};
-  struct parser *parsers[] = {&_IF, &i, &_THEN, &t, &_ELSE, &e, NULL};
-  s = parse_all(parsers, s);
-  if (s->failed) {
+static struct Source *Expr_ite(union ParserCtx *ctx, struct Source *s) {
+  struct Ite *ite = new (struct Ite);
+  struct Parser i = {Expr, {.Expr = &ite->i}};
+  struct Parser t = {Expr, {.Expr = &ite->t}};
+  struct Parser e = {Expr, {.Expr = &ite->e}};
+  struct Parser *parsers[] = {&If, &i, &Then, &t, &Else, &e, NULL};
+  s = parseAll(parsers, s);
+  if (s->Failed) {
     free(ite);
     return s;
   }
-  ctx->expr->kind = EXPR_ITE;
-  ctx->expr->data.ite = ite;
+  ctx->Expr->kind = Expr_Ite;
+  ctx->Expr->data.Ite = ite;
   return s;
 }
 
-struct param {
-  struct node as_node;
-
-  struct span name;
+struct Param {
+  struct node AsNode;
+  struct span Name;
 };
 
-struct source *param(union parser_ctx *ctx, struct source *s) {
+struct Source *Param(union ParserCtx *ctx, struct Source *s) {
   struct span name;
-  s = parse_lowercase(&name, s);
-  if (s->failed) {
+  s = parseLowercase(&name, s);
+  if (s->Failed) {
     return s;
   }
-  struct param *param = new (struct param);
-  node_default(&param->as_node);
-  param->name = name;
-  param->as_node.key = _next_uid();
-  *ctx->nodes = tree_insert(*ctx->nodes, &param->as_node);
+  struct Param *param = new (struct Param);
+  node_Default(&param->AsNode);
+  param->Name = name;
+  param->AsNode.Key = newUID();
+  *ctx->Nodes = tree_Insert(*ctx->Nodes, &param->AsNode);
   return s;
 }
 
-struct source *params(union parser_ctx *ctx, struct source *s) {
-  struct parser *no_params[] = {&_LPAREN, &_RPAREN, NULL};
-  struct parser all_no_params = {all, {.parsers = no_params}};
+struct Source *Params(union ParserCtx *ctx, struct Source *s) {
+  struct Parser *noParams[] = {&LParen, &RParen, NULL};
+  struct Parser allNoParams = {all, {.Parsers = noParams}};
 
-  struct parser one_param = {param, {.nodes = ctx->nodes}};
-  struct parser *other_params[] = {&_COMMA, &one_param, NULL};
-  struct parser all_other_params = {all, {.parsers = other_params}};
-  struct parser many_other_params = {many, {.parser = &all_other_params}};
-  struct parser *multi_params[] = {&_LPAREN, &one_param, &many_other_params,
-                                   &_RPAREN, NULL};
-  struct parser all_multi_params = {all, {.parsers = multi_params}};
+  struct Parser oneParam = {Param, {.Nodes = ctx->Nodes}};
+  struct Parser *otherParams[] = {&Comma, &oneParam, NULL};
+  struct Parser allOtherParams = {all, {.Parsers = otherParams}};
+  struct Parser manyOtherParams = {many, {.Parser = &allOtherParams}};
+  struct Parser *multiParams[] = {&LParen, &oneParam, &manyOtherParams, &RParen,
+                                  NULL};
+  struct Parser allMultiParams = {all, {.Parsers = multiParams}};
 
-  struct parser *branches[] = {&all_no_params, &all_multi_params, NULL};
-  return parse_any(branches, s);
+  struct Parser *branches[] = {&allNoParams, &allMultiParams, NULL};
+  return parseAny(branches, s);
 }
 
-struct lambda {
-  struct node *params;
-  struct expr body;
+struct Lambda {
+  struct node *Params;
+  struct Expr Body;
 };
 
-void lambda_default(struct lambda *lam) { lam->params = NULL; }
+void Lambda_Default(struct Lambda *lam) { lam->Params = NULL; }
 
-static struct source *_expr_lambda(union parser_ctx *ctx, struct source *s) {
-  struct lambda *lam = new (struct lambda);
-  lambda_default(lam);
-  struct parser ps = {params, {.nodes = &lam->params}};
-  struct parser body = {expr, {.expr = &lam->body}};
-  struct parser *parsers[] = {&ps, &_ARROW, &body, NULL};
-  s = parse_all(parsers, s);
-  if (s->failed) {
+static struct Source *Expr_lambda(union ParserCtx *ctx, struct Source *s) {
+  struct Lambda *lam = new (struct Lambda);
+  Lambda_Default(lam);
+  struct Parser ps = {Params, {.Nodes = &lam->Params}};
+  struct Parser body = {Expr, {.Expr = &lam->Body}};
+  struct Parser *parsers[] = {&ps, &Arrow, &body, NULL};
+  s = parseAll(parsers, s);
+  if (s->Failed) {
     free(lam);
     return s;
   }
-  ctx->expr->kind = EXPR_LAM;
-  ctx->expr->data.lam = lam;
+  ctx->Expr->kind = Expr_Lam;
+  ctx->Expr->data.Lam = lam;
   return s;
 }
 
-static struct source *_decimal_digits(union parser_ctx *ctx, struct source *s) {
-  struct loc loc = s->loc;
-  struct parser option_under = {option, {.parser = &_UNDER}};
-  struct parser *other_digits[] = {&option_under, &_ASCII_DIGIT, NULL};
-  struct parser all_other_digits = {all, {.parsers = other_digits}};
-  struct parser many_other_digits = {many, {.parser = &all_other_digits}};
-  struct parser *digits[] = {&_ASCII_DIGIT, &many_other_digits, NULL};
-  s = parse_all(digits, s);
-  if (!s->failed) {
-    *ctx->span = (struct span){loc, s->loc};
+static struct Source *decimalDigits(union ParserCtx *ctx, struct Source *s) {
+  struct loc loc = s->Loc;
+  struct Parser optionalUnder = {option, {.Parser = &Under}};
+  struct Parser *otherDigits[] = {&optionalUnder, &AsciiDigit, NULL};
+  struct Parser allOtherDigits = {all, {.Parsers = otherDigits}};
+  struct Parser manyOtherDigits = {many, {.Parser = &allOtherDigits}};
+  struct Parser *digits[] = {&AsciiDigit, &manyOtherDigits, NULL};
+  s = parseAll(digits, s);
+  if (!s->Failed) {
+    *ctx->Span = (struct span){loc, s->Loc};
   }
   return s;
 }
 
-static struct source *_decimal_number(union parser_ctx *ctx, struct source *s) {
-  struct parser decimal_digits = {_decimal_digits, {.span = ctx->span}};
-  return parse_atom(&decimal_digits, s);
+static struct Source *decimalNumber(union ParserCtx *ctx, struct Source *s) {
+  struct Parser parser = {decimalDigits, {.Span = ctx->Span}};
+  return parseAtom(&parser, s);
 }
 
-struct source *number(union parser_ctx *ctx, struct source *s) {
-  return _decimal_number(ctx, s);
+struct Source *Number(union ParserCtx *ctx, struct Source *s) {
+  return decimalNumber(ctx, s);
 }
 
-static struct source *_expr_number(union parser_ctx *ctx, struct source *s) {
+static struct Source *Expr_number(union ParserCtx *ctx, struct Source *s) {
   struct span num;
-  union parser_ctx num_ctx = {.span = &num};
-  s = number(&num_ctx, s);
-  if (!s->failed) {
-    ctx->expr->kind = EXPR_NUM;
-    ctx->expr->data.span = num;
+  union ParserCtx num_ctx = {.Span = &num};
+  s = Number(&num_ctx, s);
+  if (!s->Failed) {
+    ctx->Expr->kind = Expr_Num;
+    ctx->Expr->data.Span = num;
   }
   return s;
 }
 
-static struct source *_expr_unit(union parser_ctx *ctx, struct source *s) {
-  s = _UNIT.parse(&_UNIT.ctx, s);
-  if (!s->failed) {
-    ctx->expr->kind = EXPR_UNIT;
+static struct Source *Expr_unit(union ParserCtx *ctx, struct Source *s) {
+  s = Unit.Parse(&Unit.Ctx, s);
+  if (!s->Failed) {
+    ctx->Expr->kind = Expr_Unit;
   }
   return s;
 }
 
-static struct source *_expr_false(union parser_ctx *ctx, struct source *s) {
-  s = _FALSE.parse(&_FALSE.ctx, s);
-  if (!s->failed) {
-    ctx->expr->kind = EXPR_FALSE;
+static struct Source *Expr_false(union ParserCtx *ctx, struct Source *s) {
+  s = False.Parse(&False.Ctx, s);
+  if (!s->Failed) {
+    ctx->Expr->kind = Expr_False;
   }
   return s;
 }
 
-static struct source *_expr_true(union parser_ctx *ctx, struct source *s) {
-  s = _TRUE.parse(&_TRUE.ctx, s);
-  if (!s->failed) {
-    ctx->expr->kind = EXPR_TRUE;
+static struct Source *Expr_true(union ParserCtx *ctx, struct Source *s) {
+  s = True.Parse(&True.Ctx, s);
+  if (!s->Failed) {
+    ctx->Expr->kind = Expr_True;
   }
   return s;
 }
 
-static struct source *_expr_ref(union parser_ctx *ctx, struct source *s) {
+static struct Source *Expr_ref(union ParserCtx *ctx, struct Source *s) {
   struct span ref;
-  s = parse_lowercase(&ref, s);
-  if (!s->failed) {
-    ctx->expr->kind = EXPR_UNRESOLVED;
-    ctx->expr->data.span = ref;
+  s = parseLowercase(&ref, s);
+  if (!s->Failed) {
+    ctx->Expr->kind = Expr_Unresolved;
+    ctx->Expr->data.Span = ref;
   }
   return s;
 }
 
-static struct source *_expr_paren(union parser_ctx *ctx, struct source *s) {
-  struct parser e = {expr, {.expr = ctx->expr}};
-  struct parser *parsers[] = {&_LPAREN, &e, &_RPAREN, NULL};
-  return parse_all(parsers, s);
+static struct Source *Expr_paren(union ParserCtx *ctx, struct Source *s) {
+  struct Parser e = {Expr, {.Expr = ctx->Expr}};
+  struct Parser *parsers[] = {&LParen, &e, &RParen, NULL};
+  return parseAll(parsers, s);
 }
 
-struct source *parse_expr(struct expr *e, struct source *s) {
-  struct parser expr_app = {_expr_app, {.expr = e}};
-  struct parser expr_ite = {_expr_ite, {.expr = e}};
-  struct parser expr_lam = {_expr_lambda, {.expr = e}};
-  struct parser expr_num = {_expr_number, {.expr = e}};
-  struct parser expr_unit = {_expr_unit, {.expr = e}};
-  struct parser expr_false = {_expr_false, {.expr = e}};
-  struct parser expr_true = {_expr_true, {.expr = e}};
-  struct parser expr_ref = {_expr_ref, {.expr = e}};
-  struct parser expr_paren = {_expr_paren, {.expr = e}};
-  struct parser *branches[] = {&expr_app,   &expr_ite,   &expr_lam,  &expr_num,
-                               &expr_unit,  &expr_false, &expr_true, &expr_ref,
-                               &expr_paren, NULL};
-  return parse_any(branches, s);
+struct Source *ParseExpr(struct Expr *expr, struct Source *s) {
+  struct Parser app = {Expr_app, {.Expr = expr}};
+  struct Parser ite = {Expr_ite, {.Expr = expr}};
+  struct Parser lam = {Expr_lambda, {.Expr = expr}};
+  struct Parser num = {Expr_number, {.Expr = expr}};
+  struct Parser unit = {Expr_unit, {.Expr = expr}};
+  struct Parser fl = {Expr_false, {.Expr = expr}};
+  struct Parser tr = {Expr_true, {.Expr = expr}};
+  struct Parser ref = {Expr_ref, {.Expr = expr}};
+  struct Parser paren = {Expr_paren, {.Expr = expr}};
+  struct Parser *branches[] = {&app, &ite, &lam, &num,   &unit,
+                               &fl,  &tr,  &ref, &paren, NULL};
+  return parseAny(branches, s);
 }
 
-enum body_kind { BODY_FN = 1, BODY_VAL };
-union body {
-  struct expr ret;
+enum BodyKind { Body_Fn = 1, Body_Val };
+union Body {
+  struct Expr Ret;
 };
 
-struct def {
-  struct node as_node;
+struct Def {
+  struct node AsNode;
 
-  struct span name;
-  struct node *params;
-  enum body_kind kind;
-  union body body;
+  struct span Name;
+  struct node *Params;
+  enum BodyKind Kind;
+  union Body Body;
 };
 
-struct source *fn(union parser_ctx *ctx, struct source *s) {
-  struct parser name = {lowercase, {.span = &ctx->def->name}};
-  struct parser ps = {params, {.nodes = &ctx->def->params}};
-  struct parser ret = {expr, {.expr = &ctx->def->body.ret}};
-  struct parser *parsers[] = {&name, &ps, &ret, NULL};
-  s = parse_all(parsers, s);
-  if (s->failed) {
+void Def_Default(struct Def *d) {
+  node_Default(&d->AsNode);
+  d->Params = NULL;
+}
+
+struct Source *Fn(union ParserCtx *ctx, struct Source *s) {
+  struct Parser name = {lowercase, {.Span = &ctx->Def->Name}};
+  struct Parser ps = {Params, {.Nodes = &ctx->Def->Params}};
+  struct Parser ret = {Expr, {.Expr = &ctx->Def->Body.Ret}};
+  struct Parser *parsers[] = {&name, &ps, &ret, NULL};
+  s = parseAll(parsers, s);
+  if (s->Failed) {
     return s;
   }
-  s = parse_end(s);
-  if (!s->failed) {
-    ctx->def->kind = BODY_FN;
+  s = parseEnd(s);
+  if (!s->Failed) {
+    ctx->Def->Kind = Body_Fn;
   }
   return s;
 }
 
-struct source *val(union parser_ctx *ctx, struct source *s) {
-  struct parser name = {lowercase, {.span = &ctx->def->name}};
-  struct parser ret = {expr, {.expr = &ctx->def->body.ret}};
-  struct parser *parsers[] = {&name, &_ASSIGN, &ret, NULL};
-  s = parse_all(parsers, s);
-  if (s->failed) {
+struct Source *Val(union ParserCtx *ctx, struct Source *s) {
+  struct Parser name = {lowercase, {.Span = &ctx->Def->Name}};
+  struct Parser ret = {Expr, {.Expr = &ctx->Def->Body.Ret}};
+  struct Parser *parsers[] = {&name, &Assign, &ret, NULL};
+  s = parseAll(parsers, s);
+  if (s->Failed) {
     return s;
   }
-  s = parse_end(s);
-  if (!s->failed) {
-    ctx->def->kind = BODY_VAL;
+  s = parseEnd(s);
+  if (!s->Failed) {
+    ctx->Def->Kind = Body_Val;
   }
   return s;
 }
 
-void def_default(struct def *d) {
-  node_default(&d->as_node);
-  d->params = NULL;
-}
+struct Source *Def(union ParserCtx *ctx, struct Source *s) {
+  struct Def *d = new (struct Def);
+  Def_Default(d);
 
-struct source *def(union parser_ctx *ctx, struct source *s) {
-  struct def *d = new (struct def);
-  def_default(d);
+  struct Parser fn = {Fn, {.Def = d}};
+  struct Parser val = {Val, {.Def = d}};
 
-  struct parser def_fn = {fn, {.def = d}};
-  struct parser def_val = {val, {.def = d}};
-
-  struct parser *branches[] = {&def_fn, &def_val, NULL};
-  s = parse_any(branches, s);
-  if (s->failed) {
+  struct Parser *branches[] = {&fn, &val, NULL};
+  s = parseAny(branches, s);
+  if (s->Failed) {
     free(d);
     return s;
   }
-  d->as_node.key = _next_uid();
-  *ctx->nodes = tree_insert(*ctx->nodes, &d->as_node);
+  d->AsNode.Key = newUID();
+  *ctx->Nodes = tree_Insert(*ctx->Nodes, &d->AsNode);
   return s;
 }
 
-struct prog {
-  struct node *defs;
+struct Program {
+  struct node *Defs;
 };
 
-void prog_default(struct prog *p) { p->defs = NULL; }
+void Program_Default(struct Program *p) { p->Defs = NULL; }
 
-struct source *parse_prog(struct node **defs, struct source *s) {
-  struct parser one_def = {def, {.nodes = defs}};
-  struct parser many_defs = {many, {.parser = &one_def}};
-  struct parser *parsers[] = {&_SOI, &many_defs, &_EOI, NULL};
-  return parse_all(parsers, s);
+struct Source *ParseProgram(struct node **defs, struct Source *s) {
+  struct Parser oneDef = {Def, {.Nodes = defs}};
+  struct Parser manyDefs = {many, {.Parser = &oneDef}};
+  struct Parser *parsers[] = {&Soi, &manyDefs, &Eoi, NULL};
+  return parseAll(parsers, s);
 }
 
-enum resolve_state { RESOLVE_OK, RESOLVE_NOTFOUND, RESOLVE_DUPLICATE };
+enum Resolution { Resolution_OK, Resolution_NotFound, Resolution_Duplicate };
 
-struct resolver {
-  struct source *s;
-  struct map globals, locals, params;
-  enum resolve_state state;
-  struct span name_span;
-  const char *name_text;
+struct Resolver {
+  struct Source *Src;
+  struct map Globals, Locals, Params;
+  enum Resolution State;
+  struct span NameSpan;
+  const char *NameText;
 };
 
-void resolver_init(struct resolver *r, struct source *s) {
-  r->s = s;
-  map_default(&r->globals);
-  r->state = RESOLVE_OK;
-  r->name_text = NULL;
+void Resolver_Init(struct Resolver *r, struct Source *s) {
+  r->Src = s;
+  map_Default(&r->Globals);
+  r->State = Resolution_OK;
+  r->NameText = NULL;
 }
 
-void resolver_free(struct resolver *r) {
-  map_free(&r->globals);
-  if (r->name_text) {
-    free((void *)r->name_text);
+void Resolver_Free(struct Resolver *r) {
+  map_Free(&r->Globals);
+  if (r->NameText) {
+    free((void *)r->NameText);
   }
 }
 
-void resolve(struct resolver *r, struct expr *e);
+void Resolver_Resolve(struct Resolver *r, struct Expr *e);
 
-void resolve_arg(void *data, void *arg) {
-  resolve((struct resolver *)data, (struct expr *)arg);
+static void Resolver_resolveArg(void *data, void *arg) {
+  Resolver_Resolve((struct Resolver *)data, (struct Expr *)arg);
 }
 
-void resolve(struct resolver *r, struct expr *e) {
+void Resolver_Resolve(struct Resolver *r, struct Expr *e) {
   switch (e->kind) {
-  case EXPR_APP: {
-    resolve(r, &e->data.app->f);
-    if (r->state != RESOLVE_OK) {
+  case Expr_App: {
+    Resolver_Resolve(r, &e->data.App->F);
+    if (r->State != Resolution_OK) {
       return;
     }
-    slice_iter(r, &e->data.app->args, resolve_arg);
+    slice_Iter(r, &e->data.App->Args, Resolver_resolveArg);
     return;
   }
-  case EXPR_ITE: {
-    resolve(r, &e->data.ite->i);
-    if (r->state != RESOLVE_OK) {
+  case Expr_Ite: {
+    Resolver_Resolve(r, &e->data.Ite->i);
+    if (r->State != Resolution_OK) {
       return;
     }
-    resolve(r, &e->data.ite->t);
-    if (r->state != RESOLVE_OK) {
+    Resolver_Resolve(r, &e->data.Ite->t);
+    if (r->State != Resolution_OK) {
       return;
     }
-    resolve(r, &e->data.ite->e);
+    Resolver_Resolve(r, &e->data.Ite->e);
     return;
   }
-  case EXPR_LAM: {
+  case Expr_Lam: {
     // TODO
     panic("TODO");
     return;
   }
-  case EXPR_UNRESOLVED: {
-    const char *name_text = source_text(r->s, e->data.span);
+  case Expr_Unresolved: {
+    const char *nameText = source_Text(r->Src, e->data.Span);
     int id;
-    if (map_get(&r->locals, name_text, &id) ||
-        map_get(&r->globals, name_text, &id)) {
-      free((void *)name_text);
-      e->kind = EXPR_RESOLVED;
-      e->data.id = id;
+    if (map_Get(&r->Locals, nameText, &id) ||
+        map_Get(&r->Globals, nameText, &id)) {
+      free((void *)nameText);
+      e->kind = Expr_Resolved;
+      e->data.ID = id;
       return;
     }
-    r->state = RESOLVE_NOTFOUND;
-    r->name_span = e->data.span;
-    r->name_text = name_text;
+    r->State = Resolution_NotFound;
+    r->NameSpan = e->data.Span;
+    r->NameText = nameText;
     return;
   }
-  case EXPR_NUM:
-  case EXPR_UNIT:
-  case EXPR_FALSE:
-  case EXPR_TRUE:
+  case Expr_Num:
+  case Expr_Unit:
+  case Expr_False:
+  case Expr_True:
     return;
-  case EXPR_RESOLVED:
+  case Expr_Resolved:
     break;
   }
   unreachable();
 }
 
-void validate_param(void *data, struct node *node) {
-  struct resolver *r = data;
-  if (r->state != RESOLVE_OK) {
+static void Resolver_validateParam(void *data, struct node *node) {
+  struct Resolver *r = data;
+  if (r->State != Resolution_OK) {
     return;
   }
-  struct param *p = (struct param *)node;
-  const char *name_text = source_text(r->s, p->name);
-  if (map_set(&r->params, name_text, p->as_node.key)) {
-    r->state = RESOLVE_DUPLICATE;
-    r->name_span = p->name;
-    r->name_text = name_text;
+  struct Param *p = (struct Param *)node;
+  const char *nameText = source_Text(r->Src, p->Name);
+  if (map_Set(&r->Params, nameText, p->AsNode.Key)) {
+    r->State = Resolution_Duplicate;
+    r->NameSpan = p->Name;
+    r->NameText = nameText;
   }
 }
 
-void resolve_param(void *data, struct node *node) {
-  struct resolver *r = data;
-  if (r->state != RESOLVE_OK) {
+static void Resolver_resolveParam(void *data, struct node *node) {
+  struct Resolver *r = data;
+  if (r->State != Resolution_OK) {
     return;
   }
-  struct param *p = (struct param *)node;
-  const char *name_text = source_text(r->s, p->name);
-  if (map_set(&r->locals, name_text, p->as_node.key)) {
-    free((void *)name_text);
+  struct Param *p = (struct Param *)node;
+  const char *nameText = source_Text(r->Src, p->Name);
+  if (map_Set(&r->Locals, nameText, p->AsNode.Key)) {
+    free((void *)nameText);
   }
 }
 
-void resolve_def(void *data, struct node *node) {
-  struct resolver *r = data;
-  if (r->state != RESOLVE_OK) {
+/*static*/ void Resolver_resolveDef(void *data, struct node *node) {
+  struct Resolver *r = data;
+  if (r->State != Resolution_OK) {
     return;
   }
 
-  struct def *d = (struct def *)node;
-  const char *name_text = source_text(r->s, d->name);
-  if (map_set(&r->globals, name_text, d->as_node.key)) {
-    r->state = RESOLVE_DUPLICATE;
-    r->name_span = d->name;
-    r->name_text = name_text;
+  struct Def *d = (struct Def *)node;
+  const char *name_text = source_Text(r->Src, d->Name);
+  if (map_Set(&r->Globals, name_text, d->AsNode.Key)) {
+    r->State = Resolution_Duplicate;
+    r->NameSpan = d->Name;
+    r->NameText = name_text;
     return;
   }
 
-  map_default(&r->params);
-  tree_iter(r, d->params, validate_param);
-  if (r->state != RESOLVE_OK) {
+  map_Default(&r->Params);
+  tree_Iter(r, d->Params, Resolver_validateParam);
+  if (r->State != Resolution_OK) {
     return;
   }
 
-  map_default(&r->locals);
-  map_merge(&r->locals, &r->params);
-  tree_iter(r, d->params, resolve_param);
-  if (r->state != RESOLVE_OK) {
+  map_Default(&r->Locals);
+  map_Merge(&r->Locals, &r->Params);
+  tree_Iter(r, d->Params, Resolver_resolveParam);
+  if (r->State != Resolution_OK) {
     return;
   }
 
-  resolve(r, &d->body.ret);
-  map_free(&r->locals);
+  Resolver_Resolve(r, &d->Body.Ret);
+  map_Free(&r->Locals);
 }
 
-struct interp {
-  const char *filename;
-  FILE *infile;
-  struct source src;
+struct Driver {
+  const char *Filename;
+  FILE *Infile;
+  struct Source Src;
 };
 
-int interp_init(struct interp *i, int argc, const char *argv[]) {
+int Driver_Init(struct Driver *i, int argc, const char *argv[]) {
   if (argc < 2) {
     return -1;
   }
-  i->filename = argv[1];
-  i->infile = fopen(i->filename, "r");
-  if (!i->infile) {
+  i->Filename = argv[1];
+  i->Infile = fopen(i->Filename, "r");
+  if (!i->Infile) {
     perror("open file error");
     return -1;
   }
-  source_init(&i->src, i->infile);
+  source_Init(&i->Src, i->Infile);
   return 0;
 }
 
-int interp_close(struct interp *i) {
-  int ret = fclose(i->infile);
+int Driver_Free(struct Driver *i) {
+  int ret = fclose(i->Infile);
   if (ret != 0) {
     perror("close file error");
   }
   return ret;
 }
 
-static void _iter_param(void *data, struct node *node) {
+static void debugParam(void *data, struct node *node) {
   (void)data;
-  struct param *param = (struct param *)node;
-  printf("param: key=%d, pos=%lu\n", param->as_node.key, param->name.start.pos);
+  struct Param *param = (struct Param *)node;
+  printf("Param: key=%d, pos=%lu\n", param->AsNode.Key, param->Name.Start.Pos);
 }
 
-static void _iter_def(void *data, struct node *node) {
-  struct def *d = (struct def *)node;
-  printf("def: key=%d, pos=%lu, kind=%d, ret_kind=%d\n", d->as_node.key,
-         d->name.start.pos, d->kind, d->body.ret.kind);
-  tree_iter(data, d->params, _iter_param);
+static void debugDef(void *data, struct node *node) {
+  struct Def *d = (struct Def *)node;
+  printf("Def: key=%d, pos=%lu, Kind=%d, ret_kind=%d\n", d->AsNode.Key,
+         d->Name.Start.Pos, d->Kind, d->Body.Ret.kind);
+  tree_Iter(data, d->Params, debugParam);
 }
 
 #if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) &&   \
     !__has_feature(memory_sanitizer)
-static void _on_signal(int sig) { panic(strerror(sig)); }
-static void _recovery(void) { signal(SIGSEGV, _on_signal); }
+static void onSignal(int sig) { panic(strerror(sig)); }
+static void recovery(void) { signal(SIGSEGV, onSignal); }
 #else
-static void _recovery(void) {}
+static void recovery(void) {}
 #endif
 
 int main(int argc, const char *argv[]) {
-  _recovery();
+  recovery();
 
   // Parsing some text.
-  struct interp interp;
-  if (interp_init(&interp, argc, argv) != 0) {
+  struct Driver driver;
+  if (Driver_Init(&driver, argc, argv) != 0) {
     printf("usage: oxn FILE\n");
     return 1;
   }
 
-  struct prog program;
-  prog_default(&program);
-  struct source *s = parse_prog(&program.defs, &interp.src);
-  if (s->failed) {
-    printf("%s:%lu:%lu: parse error (pos=%lu)\n", interp.filename, s->loc.ln,
-           s->loc.col, s->loc.pos);
+  struct Program p;
+  Program_Default(&p);
+  struct Source *s = ParseProgram(&p.Defs, &driver.Src);
+  if (s->Failed) {
+    printf("%s:%lu:%lu: Parse error (pos=%lu)\n", driver.Filename, s->Loc.Ln,
+           s->Loc.Col, s->Loc.Pos);
     return 1;
   }
-  tree_iter(NULL, program.defs, _iter_def);
-  if (interp_close(&interp) != 0) {
+  tree_Iter(NULL, p.Defs, debugDef);
+  if (Driver_Free(&driver) != 0) {
     return 1;
   }
 

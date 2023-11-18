@@ -19,6 +19,11 @@ LIBS := -lgccjit
 ARGS := ${LINT} ${OPTIMIZE} ${DEBUG} ${LIBS}
 SRC := oxn.c
 
+.PHONY: all
+all: oxn sanitize
+
+${SRC}:
+
 oxn: ${SRC}
 	${CC} ${ARGS} -o $@ $^
 
