@@ -210,9 +210,9 @@ struct map {
 };
 
 static void map_Default(struct map *m) {
-  m->Buckets = make(struct entry *, m->Cap);
   m->Size = 0;
   m->Cap = 8;
+  m->Buckets = make(struct entry *, m->Cap);
 }
 
 static size_t map_hash(const char *key, size_t cap) {
@@ -301,8 +301,8 @@ static void map_Merge(struct map *lhs, struct map *rhs) {
       struct entry *rhs_next = rhs_e->Next;
       if (map_Set(lhs, rhs_e->Key, rhs_e->Val)) {
         free((void *)rhs_e->Key);
-        rhs_e->Key = NULL;
       }
+      rhs_e->Key = NULL;
       rhs_e = rhs_next;
     }
   }
@@ -453,7 +453,7 @@ static size_t source_Size(struct Source *s) {
   return (size_t)size;
 }
 
-static const char *source_Text(struct Source *s, struct span span) {
+static const char *source_NewText(struct Source *s, struct span span) {
   size_t size = span.End.Pos - span.Start.Pos + 1;
   char *text = allocate(size);
   fseek(s->File, (long)span.Start.Pos, SEEK_SET);
@@ -1069,7 +1069,7 @@ static void Resolver_validateLocal(void *data, struct node *node) {
     return;
   }
   struct Param *p = (struct Param *)node;
-  const char *nameText = source_Text(r->Src, p->Name);
+  const char *nameText = source_NewText(r->Src, p->Name);
   if (map_Set(&r->Params, nameText, p->AsNode.Key)) {
     r->State = Resolution_Duplicate;
     r->NameSpan = p->Name;
@@ -1083,7 +1083,7 @@ static void Resolver_insertLocal(void *data, struct node *node) {
     return;
   }
   struct Param *p = (struct Param *)node;
-  const char *nameText = source_Text(r->Src, p->Name);
+  const char *nameText = source_NewText(r->Src, p->Name);
   if (map_Set(&r->Locals, nameText, p->AsNode.Key)) {
     free((void *)nameText);
   }
@@ -1095,7 +1095,6 @@ static void Resolver_insertLocals(struct Resolver *r, struct node *params) {
   if (r->State != Resolution_OK) {
     return;
   }
-  map_Default(&r->Locals);
   map_Merge(&r->Locals, &r->Params);
   tree_Iter(r, params, Resolver_insertLocal);
 }
@@ -1131,7 +1130,7 @@ void Resolver_Expr(struct Resolver *r, struct Expr *e) {
     return;
   }
   case Expr_Unresolved: {
-    const char *nameText = source_Text(r->Src, e->data.Span);
+    const char *nameText = source_NewText(r->Src, e->data.Span);
     int id;
     if (map_Get(&r->Locals, nameText, &id) ||
         map_Get(&r->Globals, nameText, &id)) {
@@ -1163,20 +1162,19 @@ static void Resolver_insertGlobal(void *data, struct node *node) {
   }
 
   struct Def *d = (struct Def *)node;
-  const char *name_text = source_Text(r->Src, d->Name);
-  if (map_Set(&r->Globals, name_text, d->AsNode.Key)) {
+  const char *nameText = source_NewText(r->Src, d->Name);
+  if (map_Set(&r->Globals, nameText, d->AsNode.Key)) {
     r->State = Resolution_Duplicate;
     r->NameSpan = d->Name;
-    r->NameText = name_text;
+    r->NameText = nameText;
     return;
   }
 
+  map_Default(&r->Locals);
   Resolver_insertLocals(r, d->Params);
-  if (r->State != Resolution_OK) {
-    return;
+  if (r->State == Resolution_OK) {
+    Resolver_Expr(r, &d->Body.Ret);
   }
-
-  Resolver_Expr(r, &d->Body.Ret);
   map_Free(&r->Locals);
 }
 
@@ -1212,19 +1210,6 @@ int Driver_Free(struct Driver *i) {
   return ret;
 }
 
-static void debugParam(void *data, struct node *node) {
-  (void)data;
-  struct Param *param = (struct Param *)node;
-  printf("Param: key=%d, pos=%lu\n", param->AsNode.Key, param->Name.Start.Pos);
-}
-
-static void debugDef(void *data, struct node *node) {
-  struct Def *d = (struct Def *)node;
-  printf("Def: key=%d, pos=%lu, Kind=%d, ret_kind=%d\n", d->AsNode.Key,
-         d->Name.Start.Pos, d->Kind, d->Body.Ret.kind);
-  tree_Iter(data, d->Params, debugParam);
-}
-
 #if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) &&   \
     !__has_feature(memory_sanitizer)
 static void onSignal(int sig) { panic(strerror(sig)); }
@@ -1236,7 +1221,6 @@ static void recovery(void) {}
 int main(int argc, const char *argv[]) {
   recovery();
 
-  // Parsing some text.
   struct Driver driver;
   if (Driver_Init(&driver, argc, argv) != 0) {
     printf("usage: oxn FILE\n");
@@ -1251,8 +1235,14 @@ int main(int argc, const char *argv[]) {
            s->Loc.Col, s->Loc.Pos);
     return 1;
   }
-  tree_Iter(NULL, p.Defs, debugDef);
-  if (Driver_Free(&driver) != 0) {
+
+  struct Resolver resolver;
+  Resolver_Init(&resolver, &driver.Src);
+  Resolver_Program(&resolver, &p);
+  if (resolver.State != Resolution_OK) {
+    printf("%s:%lu:%lu: Resolve error (err=%d, name=%s)\n", driver.Filename,
+           resolver.NameSpan.Start.Ln, resolver.NameSpan.Start.Col,
+           resolver.State, resolver.NameText);
     return 1;
   }
 
