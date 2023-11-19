@@ -1035,6 +1035,17 @@ struct Source *ParseProgram(struct node **defs, struct Source *s) {
 
 enum Resolution { Resolution_OK, Resolution_NotFound, Resolution_Duplicate };
 
+const char *Resolution_ToString(enum Resolution state) {
+  switch (state) {
+  case Resolution_OK:
+    return "resolved successfully";
+  case Resolution_NotFound:
+    return "variable not found";
+  case Resolution_Duplicate:
+    return "duplicate variable";
+  }
+}
+
 struct Resolver {
   struct Source *Src;
   struct map Globals, Locals, Params;
@@ -1150,9 +1161,8 @@ void Resolver_Expr(struct Resolver *r, struct Expr *e) {
   case Expr_True:
     return;
   case Expr_Resolved:
-    break;
+    unreachable();
   }
-  unreachable();
 }
 
 static void Resolver_insertGlobal(void *data, struct node *node) {
@@ -1240,9 +1250,9 @@ int main(int argc, const char *argv[]) {
   Resolver_Init(&resolver, &driver.Src);
   Resolver_Program(&resolver, &p);
   if (resolver.State != Resolution_OK) {
-    printf("%s:%lu:%lu: Resolve error (err=%d, name=%s)\n", driver.Filename,
+    printf("%s:%lu:%lu: resolve error: %s \"%s\"\n", driver.Filename,
            resolver.NameSpan.Start.Ln, resolver.NameSpan.Start.Col,
-           resolver.State, resolver.NameText);
+           Resolution_ToString(resolver.State), resolver.NameText);
     return 1;
   }
 
