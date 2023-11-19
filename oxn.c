@@ -142,8 +142,8 @@ static struct node *tree_Insert(struct node *root, struct node *other) {
   return root;
 }
 
-/*static*/ void tree_Iter(void *data, struct node *root,
-                          void (*f)(void *data, struct node *node)) {
+static void tree_Iter(void *data, struct node *root,
+                      void (*f)(void *data, struct node *node)) {
   if (!root) {
     return;
   }
