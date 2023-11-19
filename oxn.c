@@ -62,13 +62,6 @@ static void *reallocate(void *p, size_t size) {
 #define new(type) allocate(sizeof(type))
 #define make(type, count) allocateZeroed(sizeof(type), count)
 
-static volatile int nextUID = 0;
-
-static int newUID(void) {
-  nextUID++;
-  return nextUID;
-}
-
 static int max(int a, int b) { return a > b ? a : b; }
 
 struct node {
@@ -435,12 +428,14 @@ struct span {
 struct Source {
   struct loc Loc;
   FILE *File;
+  volatile int NextUID;
   bool Failed, Atom, NewlineSensitive;
 };
 
 static void source_Init(struct Source *s, FILE *f) {
   loc_Default(&s->Loc);
   s->File = f;
+  s->NextUID = 0;
   s->Failed = false;
   s->Atom = false;
   s->NewlineSensitive = false;
@@ -451,6 +446,11 @@ static size_t source_Size(struct Source *s) {
   long size = ftell(s->File);
   fseek(s->File, (long)s->Loc.Pos, SEEK_SET);
   return (size_t)size;
+}
+
+static int source_NewUID(struct Source *s) {
+  s->NextUID++;
+  return s->NextUID;
 }
 
 static const char *source_NewText(struct Source *s, struct span span) {
@@ -819,7 +819,7 @@ struct Source *Param(union ParserCtx *ctx, struct Source *s) {
   struct Param *param = new (struct Param);
   node_Default(&param->AsNode);
   param->Name = name;
-  param->AsNode.Key = newUID();
+  param->AsNode.Key = source_NewUID(s);
   *ctx->Nodes = tree_Insert(*ctx->Nodes, &param->AsNode);
   return s;
 }
@@ -1015,7 +1015,7 @@ struct Source *Def(union ParserCtx *ctx, struct Source *s) {
     free(d);
     return s;
   }
-  d->AsNode.Key = newUID();
+  d->AsNode.Key = source_NewUID(s);
   *ctx->Nodes = tree_Insert(*ctx->Nodes, &d->AsNode);
   return s;
 }
@@ -1212,6 +1212,29 @@ int Driver_Init(struct Driver *i, int argc, const char *argv[]) {
   return 0;
 }
 
+int Driver_Run(struct Driver *d) {
+  struct Program p;
+  Program_Default(&p);
+  struct Source *s = ParseProgram(&p.Defs, &d->Src);
+  if (s->Failed) {
+    printf("%s:%lu:%lu: Parse error (pos=%lu)\n", d->Filename, s->Loc.Ln,
+           s->Loc.Col, s->Loc.Pos);
+    return -1;
+  }
+
+  struct Resolver resolver;
+  Resolver_Init(&resolver, &d->Src);
+  Resolver_Program(&resolver, &p);
+  if (resolver.State != Resolution_OK) {
+    printf("%s:%lu:%lu: resolve error: %s \"%s\"\n", d->Filename,
+           resolver.NameSpan.Start.Ln, resolver.NameSpan.Start.Col,
+           Resolution_ToString(resolver.State), resolver.NameText);
+    return -1;
+  }
+
+  return 0;
+}
+
 int Driver_Free(struct Driver *i) {
   int ret = fclose(i->Infile);
   if (ret != 0) {
@@ -1236,23 +1259,7 @@ int main(int argc, const char *argv[]) {
     printf("usage: oxn FILE\n");
     return 1;
   }
-
-  struct Program p;
-  Program_Default(&p);
-  struct Source *s = ParseProgram(&p.Defs, &driver.Src);
-  if (s->Failed) {
-    printf("%s:%lu:%lu: Parse error (pos=%lu)\n", driver.Filename, s->Loc.Ln,
-           s->Loc.Col, s->Loc.Pos);
-    return 1;
-  }
-
-  struct Resolver resolver;
-  Resolver_Init(&resolver, &driver.Src);
-  Resolver_Program(&resolver, &p);
-  if (resolver.State != Resolution_OK) {
-    printf("%s:%lu:%lu: resolve error: %s \"%s\"\n", driver.Filename,
-           resolver.NameSpan.Start.Ln, resolver.NameSpan.Start.Col,
-           Resolution_ToString(resolver.State), resolver.NameText);
+  if (Driver_Run(&driver) != 0) {
     return 1;
   }
 
