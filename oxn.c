@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define OXN_VERSION "0.1.0"
+
 #ifdef __GNUC__
 #include <execinfo.h>
 static void printStack(void) {
@@ -1198,21 +1200,36 @@ struct Driver {
   struct Source Src;
 };
 
-int Driver_Init(struct Driver *i, int argc, const char *argv[]) {
-  if (argc < 2) {
-    return -1;
-  }
-  i->Filename = argv[1];
-  i->Infile = fopen(i->Filename, "r");
-  if (!i->Infile) {
-    perror("open file error");
-    return -1;
-  }
-  source_Init(&i->Src, i->Infile);
+static int Driver_printUsage(void) {
+  printf("Oxn programming language.\n"
+         "\n"
+         "Usage:\n"
+         "\n"
+         "\toxn <command> [<arguments>]\n"
+         "\n"
+         "Commands are:\n"
+         "\n"
+         "\toxn run\t\trun a script with the default JIT mode\n"
+         "\toxn help\tprint this usage message\n"
+         "\toxn version\tprint the version\n"
+         "\n");
   return 0;
 }
 
-int Driver_Run(struct Driver *d) {
+static int Driver_printVersion(void) {
+  printf("oxn v" OXN_VERSION "\n");
+  return 0;
+}
+
+static int Driver_runScript(struct Driver *d, const char *filename) {
+  d->Filename = filename;
+  d->Infile = fopen(d->Filename, "r");
+  if (!d->Infile) {
+    perror("open file error");
+    return -1;
+  }
+
+  source_Init(&d->Src, d->Infile);
   struct Program p;
   Program_Default(&p);
   struct Source *s = ParseProgram(&p.Defs, &d->Src);
@@ -1225,14 +1242,37 @@ int Driver_Run(struct Driver *d) {
   struct Resolver resolver;
   Resolver_Init(&resolver, &d->Src);
   Resolver_Program(&resolver, &p);
-  if (resolver.State != Resolution_OK) {
-    printf("%s:%lu:%lu: resolve error: %s \"%s\"\n", d->Filename,
-           resolver.NameSpan.Start.Ln, resolver.NameSpan.Start.Col,
-           Resolution_ToString(resolver.State), resolver.NameText);
-    return -1;
+  if (resolver.State == Resolution_OK) {
+    return 0;
   }
 
-  return 0;
+  printf("%s:%lu:%lu: resolve error: %s \"%s\"\n", d->Filename,
+         resolver.NameSpan.Start.Ln, resolver.NameSpan.Start.Col,
+         Resolution_ToString(resolver.State), resolver.NameText);
+  return -1;
+}
+
+int Driver_Run(struct Driver *d, int argc, const char *argv[]) {
+  switch (argc) {
+  case 2: {
+    if (strcmp(argv[1], "help") == 0) {
+      return Driver_printUsage();
+    }
+    if (strcmp(argv[1], "version") == 0) {
+      return Driver_printVersion();
+    }
+    break;
+  }
+  case 3:
+    if (strcmp(argv[1], "run") == 0) {
+      return Driver_runScript(d, argv[2]);
+    }
+    break;
+  default:
+    break;
+  }
+  Driver_printUsage();
+  return -1;
 }
 
 int Driver_Free(struct Driver *i) {
@@ -1255,11 +1295,7 @@ int main(int argc, const char *argv[]) {
   recovery();
 
   struct Driver driver;
-  if (Driver_Init(&driver, argc, argv) != 0) {
-    printf("usage: oxn FILE\n");
-    return 1;
-  }
-  if (Driver_Run(&driver) != 0) {
+  if (Driver_Run(&driver, argc, argv) != 0) {
     return 1;
   }
 
