@@ -745,18 +745,18 @@ struct Source *Arg(union ParserCtx *ctx, struct Source *s) {
 }
 
 struct Source *Args(union ParserCtx *ctx, struct Source *s) {
-  struct Parser *no_args[] = {&LParen, &RParen, NULL};
-  struct Parser all_no_args = {all, {.Parsers = no_args}};
+  struct Parser *noArgs[] = {&LParen, &RParen, NULL};
+  struct Parser allNoArgs = {all, {.Parsers = noArgs}};
 
-  struct Parser one_arg = {Arg, {.Slice = ctx->Slice}};
-  struct Parser *other_args[] = {&Comma, &one_arg, NULL};
-  struct Parser all_other_args = {all, {.Parsers = other_args}};
-  struct Parser many_other_args = {many, {.Parser = &all_other_args}};
-  struct Parser *multi_args[] = {&LParen, &one_arg, &many_other_args, &RParen,
-                                 NULL};
-  struct Parser all_multi_args = {all, {.Parsers = multi_args}};
+  struct Parser oneArg = {Arg, {.Slice = ctx->Slice}};
+  struct Parser *otherArgs[] = {&Comma, &oneArg, NULL};
+  struct Parser allOtherArgs = {all, {.Parsers = otherArgs}};
+  struct Parser manyOtherArgs = {many, {.Parser = &allOtherArgs}};
+  struct Parser *multiArgs[] = {&LParen, &oneArg, &manyOtherArgs, &RParen,
+                                NULL};
+  struct Parser allMultiArgs = {all, {.Parsers = multiArgs}};
 
-  struct Parser *branches[] = {&all_no_args, &all_multi_args, NULL};
+  struct Parser *branches[] = {&allNoArgs, &allMultiArgs, NULL};
   return parseAny(branches, s);
 }
 
