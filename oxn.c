@@ -6,7 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define OXN_VERSION "0.1.0"
+#define OXN_VERSION_MAJOR 0
+#define OXN_VERSION_MINOR 1
+#define OXN_VERSION_PATCH 0
 
 #ifdef __GNUC__
 #include <execinfo.h>
@@ -1217,7 +1219,8 @@ static int Driver_printUsage(void) {
 }
 
 static int Driver_printVersion(void) {
-  printf("oxn v" OXN_VERSION "\n");
+  printf("oxn v%d.%d.%d\n", OXN_VERSION_MAJOR, OXN_VERSION_MINOR,
+         OXN_VERSION_PATCH);
   return 0;
 }
 
