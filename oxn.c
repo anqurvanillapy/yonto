@@ -68,6 +68,17 @@ static void *reallocate(void *p, size_t size) {
 
 static int max(int a, int b) { return a > b ? a : b; }
 
+struct IDs {
+  volatile int next;
+};
+
+void IDs_Default(struct IDs *g) { g->next = 0; }
+
+int IDs_New(struct IDs *g) {
+  g->next++;
+  return g->next;
+}
+
 struct node {
   struct node *Left, *Right;
   int Key, Height;
@@ -432,14 +443,14 @@ struct span {
 struct Source {
   struct loc Loc;
   FILE *File;
-  volatile int NextUID;
+  struct IDs *IDs;
   bool Failed, Atom, NewlineSensitive;
 };
 
-static void source_Init(struct Source *s, FILE *f) {
+static void source_Init(struct Source *s, FILE *f, struct IDs *ids) {
   loc_Default(&s->Loc);
   s->File = f;
-  s->NextUID = 0;
+  s->IDs = ids;
   s->Failed = false;
   s->Atom = false;
   s->NewlineSensitive = false;
@@ -450,11 +461,6 @@ static size_t source_Size(struct Source *s) {
   long size = ftell(s->File);
   fseek(s->File, (long)s->Loc.Pos, SEEK_SET);
   return (size_t)size;
-}
-
-static int source_NewUID(struct Source *s) {
-  s->NextUID++;
-  return s->NextUID;
 }
 
 static const char *source_NewText(struct Source *s, struct span span) {
@@ -823,7 +829,7 @@ struct Source *Param(union ParserCtx *ctx, struct Source *s) {
   struct Param *param = new (struct Param);
   node_Default(&param->AsNode);
   param->Name = name;
-  param->AsNode.Key = source_NewUID(s);
+  param->AsNode.Key = IDs_New(s->IDs);
   *ctx->Nodes = tree_Insert(*ctx->Nodes, &param->AsNode);
   return s;
 }
@@ -845,7 +851,7 @@ struct Source *Params(union ParserCtx *ctx, struct Source *s) {
 }
 
 struct Lambda {
-  struct node *Params;
+  struct Param *Params;
   struct Expr Body;
 };
 
@@ -854,7 +860,7 @@ void Lambda_Default(struct Lambda *lam) { lam->Params = NULL; }
 static struct Source *Expr_lambda(union ParserCtx *ctx, struct Source *s) {
   struct Lambda *lam = new (struct Lambda);
   Lambda_Default(lam);
-  struct Parser ps = {Params, {.Nodes = &lam->Params}};
+  struct Parser ps = {Params, {.Nodes = (struct node **)&lam->Params}};
   struct Parser body = {Expr, {.Expr = &lam->Body}};
   struct Parser *parsers[] = {&ps, &Arrow, &body, NULL};
   s = parseAll(parsers, s);
@@ -956,7 +962,7 @@ struct Source *ParseExpr(struct Expr *expr, struct Source *s) {
   return parseAny(branches, s);
 }
 
-enum BodyKind { Body_Fn = 1, Body_Val };
+enum BodyKind { Body_Undefined = 1, Body_Fn, Body_Val };
 union Body {
   struct Expr Ret;
 };
@@ -965,7 +971,7 @@ struct Def {
   struct node AsNode;
 
   struct span Name;
-  struct node *Params;
+  struct Param *Params;
   enum BodyKind Kind;
   union Body Body;
 };
@@ -977,7 +983,7 @@ void Def_Default(struct Def *d) {
 
 struct Source *Fn(union ParserCtx *ctx, struct Source *s) {
   struct Parser name = {lowercase, {.Span = &ctx->Def->Name}};
-  struct Parser ps = {Params, {.Nodes = &ctx->Def->Params}};
+  struct Parser ps = {Params, {.Nodes = (struct node **)&ctx->Def->Params}};
   struct Parser ret = {Expr, {.Expr = &ctx->Def->Body.Ret}};
   struct Parser *parsers[] = {&name, &ps, &ret, NULL};
   s = parseAll(parsers, s);
@@ -1019,19 +1025,19 @@ struct Source *Def(union ParserCtx *ctx, struct Source *s) {
     free(d);
     return s;
   }
-  d->AsNode.Key = source_NewUID(s);
+  d->AsNode.Key = IDs_New(s->IDs);
   *ctx->Nodes = tree_Insert(*ctx->Nodes, &d->AsNode);
   return s;
 }
 
 struct Program {
-  struct node *Defs;
+  struct Def *Defs;
 };
 
 void Program_Default(struct Program *p) { p->Defs = NULL; }
 
-struct Source *ParseProgram(struct node **defs, struct Source *s) {
-  struct Parser oneDef = {Def, {.Nodes = defs}};
+struct Source *ParseProgram(struct Def **defs, struct Source *s) {
+  struct Parser oneDef = {Def, {.Nodes = (struct node **)defs}};
   struct Parser manyDefs = {many, {.Parser = &oneDef}};
   struct Parser *parsers[] = {&Soi, &manyDefs, &Eoi, NULL};
   return parseAll(parsers, s);
@@ -1104,14 +1110,14 @@ static void Resolver_insertLocal(void *data, struct node *node) {
   }
 }
 
-static void Resolver_insertLocals(struct Resolver *r, struct node *params) {
+static void Resolver_insertLocals(struct Resolver *r, struct Param *params) {
   map_Default(&r->Params);
-  tree_Iter(r, params, Resolver_validateLocal);
+  tree_Iter(r, &params->AsNode, Resolver_validateLocal);
   if (r->State != Resolution_OK) {
     return;
   }
   map_Merge(&r->Locals, &r->Params);
-  tree_Iter(r, params, Resolver_insertLocal);
+  tree_Iter(r, &params->AsNode, Resolver_insertLocal);
 }
 
 void Resolver_Expr(struct Resolver *r, struct Expr *e) {
@@ -1193,12 +1199,27 @@ static void Resolver_insertGlobal(void *data, struct node *node) {
 }
 
 void Resolver_Program(struct Resolver *r, struct Program *p) {
-  tree_Iter(r, p->Defs, Resolver_insertGlobal);
+  tree_Iter(r, &p->Defs->AsNode, Resolver_insertGlobal);
 }
+
+struct Elaborator {
+  struct node *Sigma, *Gamma;
+  struct IDs *IDs;
+};
+
+void Elaborator_Init(struct Elaborator *e, struct IDs *ids) {
+  e->Sigma = NULL;
+  e->Gamma = NULL;
+  e->IDs = ids;
+}
+
+// void Elaborator_Def(struct Elaborator *e, struct Def *d) {}
+// void Elaborator_Program(struct Elaborator *e, struct Program *p) {}
 
 struct Driver {
   const char *Filename;
   FILE *Infile;
+  struct IDs IDs;
   struct Source Src;
 };
 
@@ -1232,7 +1253,8 @@ static int Driver_runScript(struct Driver *d, const char *filename) {
     return -1;
   }
 
-  source_Init(&d->Src, d->Infile);
+  IDs_Default(&d->IDs);
+  source_Init(&d->Src, d->Infile, &d->IDs);
   struct Program p;
   Program_Default(&p);
   struct Source *s = ParseProgram(&p.Defs, &d->Src);
