@@ -962,8 +962,8 @@ struct Source *ParseExpr(struct Expr *expr, struct Source *s) {
   return parseAny(branches, s);
 }
 
-enum BodyKind { Body_Undefined = 1, Body_Fn, Body_Val };
-union Body {
+enum DefKind { Def_Fn = 1, Def_Val };
+union DefBody {
   struct Expr Ret;
 };
 
@@ -972,8 +972,8 @@ struct Def {
 
   struct span Name;
   struct Param *Params;
-  enum BodyKind Kind;
-  union Body Body;
+  enum DefKind Kind;
+  union DefBody Body;
 };
 
 void Def_Default(struct Def *d) {
@@ -992,7 +992,7 @@ struct Source *Fn(union ParserCtx *ctx, struct Source *s) {
   }
   s = parseEnd(s);
   if (!s->Failed) {
-    ctx->Def->Kind = Body_Fn;
+    ctx->Def->Kind = Def_Fn;
   }
   return s;
 }
@@ -1007,7 +1007,7 @@ struct Source *Val(union ParserCtx *ctx, struct Source *s) {
   }
   s = parseEnd(s);
   if (!s->Failed) {
-    ctx->Def->Kind = Body_Val;
+    ctx->Def->Kind = Def_Val;
   }
   return s;
 }
@@ -1201,6 +1201,14 @@ static void Resolver_insertGlobal(void *data, struct node *node) {
 void Resolver_Program(struct Resolver *r, struct Program *p) {
   tree_Iter(r, &p->Defs->AsNode, Resolver_insertGlobal);
 }
+
+enum ThmKind { Thm_Undefined = 1 };
+
+struct Thm {
+  struct node AsNode;
+
+  enum ThmKind Kind;
+};
 
 struct Elaborator {
   struct node *Sigma, *Gamma;
