@@ -728,8 +728,8 @@ union ExprData {
   int ID;
 };
 struct Expr {
-  enum ExprKind kind;
-  union ExprData data;
+  enum ExprKind Kind;
+  union ExprData Data;
 };
 
 struct Source *ParseExpr(struct Expr *expr, struct Source *s);
@@ -790,28 +790,28 @@ static struct Source *Expr_app(union ParserCtx *ctx, struct Source *s) {
     free(app);
     return s;
   }
-  ctx->Expr->data.App = app;
-  ctx->Expr->kind = Expr_App;
+  ctx->Expr->Data.App = app;
+  ctx->Expr->Kind = Expr_App;
   return s;
 }
 
 struct Ite {
-  struct Expr i, t, e;
+  struct Expr If, Then, Else;
 };
 
 static struct Source *Expr_ite(union ParserCtx *ctx, struct Source *s) {
   struct Ite *ite = new (struct Ite);
-  struct Parser i = {Expr, {.Expr = &ite->i}};
-  struct Parser t = {Expr, {.Expr = &ite->t}};
-  struct Parser e = {Expr, {.Expr = &ite->e}};
+  struct Parser i = {Expr, {.Expr = &ite->If}};
+  struct Parser t = {Expr, {.Expr = &ite->Then}};
+  struct Parser e = {Expr, {.Expr = &ite->Else}};
   struct Parser *parsers[] = {&If, &i, &Then, &t, &Else, &e, NULL};
   s = parseAll(parsers, s);
   if (s->Failed) {
     free(ite);
     return s;
   }
-  ctx->Expr->kind = Expr_Ite;
-  ctx->Expr->data.Ite = ite;
+  ctx->Expr->Kind = Expr_Ite;
+  ctx->Expr->Data.Ite = ite;
   return s;
 }
 
@@ -868,8 +868,8 @@ static struct Source *Expr_lambda(union ParserCtx *ctx, struct Source *s) {
     free(lam);
     return s;
   }
-  ctx->Expr->kind = Expr_Lam;
-  ctx->Expr->data.Lam = lam;
+  ctx->Expr->Kind = Expr_Lam;
+  ctx->Expr->Data.Lam = lam;
   return s;
 }
 
@@ -901,8 +901,8 @@ static struct Source *Expr_number(union ParserCtx *ctx, struct Source *s) {
   union ParserCtx num_ctx = {.Span = &num};
   s = Number(&num_ctx, s);
   if (!s->Failed) {
-    ctx->Expr->kind = Expr_Num;
-    ctx->Expr->data.Span = num;
+    ctx->Expr->Kind = Expr_Num;
+    ctx->Expr->Data.Span = num;
   }
   return s;
 }
@@ -910,7 +910,7 @@ static struct Source *Expr_number(union ParserCtx *ctx, struct Source *s) {
 static struct Source *Expr_unit(union ParserCtx *ctx, struct Source *s) {
   s = Unit.Parse(&Unit.Ctx, s);
   if (!s->Failed) {
-    ctx->Expr->kind = Expr_Unit;
+    ctx->Expr->Kind = Expr_Unit;
   }
   return s;
 }
@@ -918,7 +918,7 @@ static struct Source *Expr_unit(union ParserCtx *ctx, struct Source *s) {
 static struct Source *Expr_false(union ParserCtx *ctx, struct Source *s) {
   s = False.Parse(&False.Ctx, s);
   if (!s->Failed) {
-    ctx->Expr->kind = Expr_False;
+    ctx->Expr->Kind = Expr_False;
   }
   return s;
 }
@@ -926,7 +926,7 @@ static struct Source *Expr_false(union ParserCtx *ctx, struct Source *s) {
 static struct Source *Expr_true(union ParserCtx *ctx, struct Source *s) {
   s = True.Parse(&True.Ctx, s);
   if (!s->Failed) {
-    ctx->Expr->kind = Expr_True;
+    ctx->Expr->Kind = Expr_True;
   }
   return s;
 }
@@ -935,8 +935,8 @@ static struct Source *Expr_ref(union ParserCtx *ctx, struct Source *s) {
   struct span ref;
   s = parseLowercase(&ref, s);
   if (!s->Failed) {
-    ctx->Expr->kind = Expr_Unresolved;
-    ctx->Expr->data.Span = ref;
+    ctx->Expr->Kind = Expr_Unresolved;
+    ctx->Expr->Data.Span = ref;
   }
   return s;
 }
@@ -1121,47 +1121,47 @@ static void Resolver_insertLocals(struct Resolver *r, struct Param *params) {
 }
 
 void Resolver_Expr(struct Resolver *r, struct Expr *e) {
-  switch (e->kind) {
+  switch (e->Kind) {
   case Expr_App: {
-    Resolver_Expr(r, &e->data.App->F);
+    Resolver_Expr(r, &e->Data.App->F);
     if (r->State != Resolution_OK) {
       return;
     }
-    slice_Iter(r, &e->data.App->Args, Resolver_resolveArg);
+    slice_Iter(r, &e->Data.App->Args, Resolver_resolveArg);
     return;
   }
   case Expr_Ite: {
-    Resolver_Expr(r, &e->data.Ite->i);
+    Resolver_Expr(r, &e->Data.Ite->If);
     if (r->State != Resolution_OK) {
       return;
     }
-    Resolver_Expr(r, &e->data.Ite->t);
+    Resolver_Expr(r, &e->Data.Ite->Then);
     if (r->State != Resolution_OK) {
       return;
     }
-    Resolver_Expr(r, &e->data.Ite->e);
+    Resolver_Expr(r, &e->Data.Ite->Else);
     return;
   }
   case Expr_Lam: {
-    Resolver_insertLocals(r, e->data.Lam->Params);
+    Resolver_insertLocals(r, e->Data.Lam->Params);
     if (r->State != Resolution_OK) {
       return;
     }
-    Resolver_Expr(r, &e->data.Lam->Body);
+    Resolver_Expr(r, &e->Data.Lam->Body);
     return;
   }
   case Expr_Unresolved: {
-    const char *nameText = source_NewText(r->Src, e->data.Span);
+    const char *nameText = source_NewText(r->Src, e->Data.Span);
     int id;
     if (map_Get(&r->Locals, nameText, &id) ||
         map_Get(&r->Globals, nameText, &id)) {
       free((void *)nameText);
-      e->kind = Expr_Resolved;
-      e->data.ID = id;
+      e->Kind = Expr_Resolved;
+      e->Data.ID = id;
       return;
     }
     r->State = Resolution_NotFound;
-    r->NameSpan = e->data.Span;
+    r->NameSpan = e->Data.Span;
     r->NameText = nameText;
     return;
   }
@@ -1202,6 +1202,25 @@ void Resolver_Program(struct Resolver *r, struct Program *p) {
   tree_Iter(r, &p->Defs->AsNode, Resolver_insertGlobal);
 }
 
+enum TermKind {
+  Term_Univ = 1,
+
+  Term_FnType,
+  Term_NumType,
+  Term_UnitType,
+  Term_BoolType,
+
+  Term_Fn,
+  Term_Num,
+  Term_Unit,
+  Term_False,
+  Term_True,
+};
+
+struct Term {
+  enum TermKind Kind;
+};
+
 enum ThmKind { Thm_Undefined = 1 };
 
 struct Thm {
@@ -1210,19 +1229,98 @@ struct Thm {
   enum ThmKind Kind;
 };
 
-struct Elaborator {
-  struct node *Sigma, *Gamma;
+struct Elab {
+  struct node *Metas, *Globals, *Locals;
   struct IDs *IDs;
 };
 
-void Elaborator_Init(struct Elaborator *e, struct IDs *ids) {
-  e->Sigma = NULL;
-  e->Gamma = NULL;
+void Elab_Init(struct Elab *e, struct IDs *ids) {
+  e->Metas = NULL;
+  e->Globals = NULL;
+  e->Locals = NULL;
   e->IDs = ids;
 }
 
-// void Elaborator_Def(struct Elaborator *e, struct Def *d) {}
-// void Elaborator_Program(struct Elaborator *e, struct Program *p) {}
+void Elab_Check(struct Elab *e, struct Expr *ex, struct Term *ty) {
+  (void)e;
+  switch (ex->Kind) {
+  case Expr_App:
+    // TODO
+    panic("TODO: application");
+  case Expr_Ite:
+    // TODO
+    panic("TODO: if-then-else");
+  case Expr_Lam:
+    // TODO
+    panic("TODO: lambda");
+  case Expr_Num:
+    if (ty->Kind == Term_NumType) {
+      return;
+    }
+    // TODO
+    panic("TODO: fail");
+  case Expr_Unit:
+    if (ty->Kind == Term_UnitType) {
+      return;
+    }
+    // TODO
+    panic("TODO: fail");
+  case Expr_False:
+  case Expr_True:
+    if (ty->Kind == Term_BoolType) {
+      return;
+    }
+    // TODO
+    panic("TODO: fail");
+  case Expr_Resolved:
+    // TODO
+    panic("TODO: reference");
+
+  case Expr_Unresolved:
+    unreachable();
+  }
+}
+
+void Elab_Infer(struct Elab *e, struct Expr *ex, struct Term *tm,
+                struct Term *ty) {
+  (void)e;
+  switch (ex->Kind) {
+  case Expr_App:
+    // TODO
+    panic("TODO: application");
+  case Expr_Ite:
+    // TODO
+    panic("TODO: if-then-else");
+  case Expr_Lam:
+    // TODO
+    panic("TODO: lambda");
+  case Expr_Num:
+    tm->Kind = Term_Num;
+    ty->Kind = Term_NumType;
+    return;
+  case Expr_Unit:
+    tm->Kind = Term_Unit;
+    ty->Kind = Term_UnitType;
+    return;
+  case Expr_False:
+    tm->Kind = Term_False;
+    ty->Kind = Term_BoolType;
+    return;
+  case Expr_True:
+    tm->Kind = Term_True;
+    ty->Kind = Term_BoolType;
+    return;
+  case Expr_Resolved:
+    // TODO
+    panic("TODO: reference");
+
+  case Expr_Unresolved:
+    unreachable();
+  }
+}
+
+// void Elab_Def(struct Elab *e, struct Def *d) {}
+// void Elab_Program(struct Elab *e, struct Program *p) {}
 
 struct Driver {
   const char *Filename;
