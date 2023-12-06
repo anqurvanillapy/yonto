@@ -830,7 +830,7 @@ struct Source *Param(union ParserCtx *ctx, struct Source *s) {
   node_Default(&param->AsNode);
   param->Name = name;
   param->AsNode.Key = IDs_New(s->IDs);
-  *ctx->Nodes = tree_Insert(*ctx->Nodes, &param->AsNode);
+  *ctx->Nodes = tree_Insert(*ctx->Nodes, (struct node *)param);
   return s;
 }
 
@@ -1026,7 +1026,7 @@ struct Source *Def(union ParserCtx *ctx, struct Source *s) {
     return s;
   }
   d->AsNode.Key = IDs_New(s->IDs);
-  *ctx->Nodes = tree_Insert(*ctx->Nodes, &d->AsNode);
+  *ctx->Nodes = tree_Insert(*ctx->Nodes, (struct node *)d);
   return s;
 }
 
@@ -1112,12 +1112,12 @@ static void Resolver_insertLocal(void *data, struct node *node) {
 
 static void Resolver_insertLocals(struct Resolver *r, struct Param *params) {
   map_Default(&r->Params);
-  tree_Iter(r, &params->AsNode, Resolver_validateLocal);
+  tree_Iter(r, (struct node *)params, Resolver_validateLocal);
   if (r->State != Resolution_OK) {
     return;
   }
   map_Merge(&r->Locals, &r->Params);
-  tree_Iter(r, &params->AsNode, Resolver_insertLocal);
+  tree_Iter(r, (struct node *)params, Resolver_insertLocal);
 }
 
 void Resolver_Expr(struct Resolver *r, struct Expr *e) {
@@ -1199,7 +1199,7 @@ static void Resolver_insertGlobal(void *data, struct node *node) {
 }
 
 void Resolver_Program(struct Resolver *r, struct Program *p) {
-  tree_Iter(r, &p->Defs->AsNode, Resolver_insertGlobal);
+  tree_Iter(r, (struct node *)p->Defs, Resolver_insertGlobal);
 }
 
 enum TermKind {
@@ -1275,7 +1275,6 @@ void Elab_Check(struct Elab *e, struct Expr *ex, struct Term *ty) {
   case Expr_Resolved:
     // TODO
     panic("TODO: reference");
-
   case Expr_Unresolved:
     unreachable();
   }
@@ -1292,6 +1291,8 @@ void Elab_Infer(struct Elab *e, struct Expr *ex, struct Term *tm,
     // TODO
     panic("TODO: if-then-else");
   case Expr_Lam:
+    tm->Kind = Term_Fn;
+    ty->Kind = Term_FnType;
     // TODO
     panic("TODO: lambda");
   case Expr_Num:
@@ -1313,7 +1314,6 @@ void Elab_Infer(struct Elab *e, struct Expr *ex, struct Term *tm,
   case Expr_Resolved:
     // TODO
     panic("TODO: reference");
-
   case Expr_Unresolved:
     unreachable();
   }
@@ -1415,7 +1415,8 @@ int Driver_Free(struct Driver *i) {
 }
 
 #if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) &&   \
-    !__has_feature(memory_sanitizer)
+    !__has_feature(memory_sanitizer) &&                                        \
+    !__has_feature(undefined_behavior_sanitizer)
 static void onSignal(int sig) { panic(strerror(sig)); }
 static void recovery(void) { signal(SIGSEGV, onSignal); }
 #else
