@@ -1229,9 +1229,29 @@ struct Thm {
   enum ThmKind Kind;
 };
 
+enum ElabStateKind {
+  Elaboration_OK,
+  Elaboration_CheckFailed,
+  Elaboration_InferFailed
+};
+
+struct ElabState {
+  enum ElabStateKind Kind;
+  struct Expr *Expr;
+  struct Term *Got, *Expected;
+};
+
+void ElabState_Default(struct ElabState *s) {
+  s->Kind = Elaboration_OK;
+  s->Expr = NULL;
+  s->Got = NULL;
+  s->Expr = NULL;
+}
+
 struct Elab {
   struct node *Metas, *Globals, *Locals;
   struct IDs *IDs;
+  struct ElabState State;
 };
 
 void Elab_Init(struct Elab *e, struct IDs *ids) {
@@ -1239,6 +1259,7 @@ void Elab_Init(struct Elab *e, struct IDs *ids) {
   e->Globals = NULL;
   e->Locals = NULL;
   e->IDs = ids;
+  ElabState_Default(&e->State);
 }
 
 void Elab_Check(struct Elab *e, struct Expr *ex, struct Term *ty) {
