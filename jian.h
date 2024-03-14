@@ -1,7 +1,12 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <libgccjit++.h>
+#include <optional>
+#include <variant>
 
 inline constexpr auto JIAN_VERSION_MAJOR = 0;
 inline constexpr auto JIAN_VERSION_MINOR = 1;
@@ -43,12 +48,6 @@ inline static void recovery() {}
 #endif
 
 /*
-#include <ctype.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 }
 
 inline static void *allocate(size_t size) {
@@ -421,108 +420,6 @@ inline static void gc_Free(struct gc *vm) {
   gc_Run(vm);
 }
 
-struct loc {
-  size_t Pos, Ln, Col;
-};
-
-inline static void loc_Default(struct loc *l) {
-  l->Pos = 0;
-  l->Ln = 1;
-  l->Col = 1;
-}
-
-inline static void loc_NextLine(struct loc *l) {
-  l->Pos++;
-  l->Ln++;
-  l->Col = 1;
-}
-
-inline static void loc_NextColumn(struct loc *l) {
-  l->Pos++;
-  l->Col++;
-}
-
-struct span {
-  struct loc Start, End;
-};
-
-struct Source {
-  struct loc Loc;
-  FILE *File;
-  struct IDs *IDs;
-  bool Failed, Atom, NewlineSensitive;
-};
-
-inline static void source_Init(struct Source *s, FILE *f, struct IDs *ids) {
-  loc_Default(&s->Loc);
-  s->File = f;
-  s->IDs = ids;
-  s->Failed = false;
-  s->Atom = false;
-  s->NewlineSensitive = false;
-}
-
-inline static size_t source_Size(struct Source *s) {
-  fseek(s->File, 0, SEEK_END);
-  long size = ftell(s->File);
-  fseek(s->File, (long)s->Loc.Pos, SEEK_SET);
-  return (size_t)size;
-}
-
-inline static const char *source_NewText(struct Source *s, struct span span) {
-  size_t size = span.End.Pos - span.Start.Pos + 1;
-  char *text = allocate(size);
-  fseek(s->File, (long)span.Start.Pos, SEEK_SET);
-  return fgets(text, (int)size, s->File);
-}
-
-inline static char source_Peek(struct Source *s) {
-  if (fseek(s->File, (long)s->Loc.Pos, SEEK_SET) != 0) {
-    return -1;
-  }
-  int c = fgetc(s->File);
-  if (c == EOF) {
-    return -1;
-  }
-  return (char)c;
-}
-
-inline static char source_Next(struct Source *s) {
-  char Next = source_Peek(s);
-  if (Next < 0) {
-    return -1;
-  }
-  if (Next == '\n') {
-    loc_NextLine(&s->Loc);
-    return Next;
-  }
-  loc_NextColumn(&s->Loc);
-  return Next;
-}
-
-inline static struct Source *source_Back(struct Source *s, struct loc loc) {
-  s->Loc = loc;
-  s->Failed = false;
-  return s;
-}
-
-inline static struct Source *source_Eat(struct Source *s, char c) {
-  if (source_Next(s) != c) {
-    s->Failed = true;
-  }
-  return s;
-}
-
-inline static struct Source *source_SkipSpaces(struct Source *s) {
-  while (true) {
-    char c = source_Peek(s);
-    if (c < 0 || (s->NewlineSensitive && c == '\n') || !isspace(c)) {
-      break;
-    }
-    s = source_Eat(s, c);
-  }
-  return s;
-}
 
 struct Parser;
 struct Expr;
@@ -1394,6 +1291,8 @@ public:
 
 template <typename T> using Result = std::variant<T, Error>;
 
+namespace parsing {
+
 class IDs {
   volatile int Next{};
 
@@ -1404,10 +1303,117 @@ public:
   }
 };
 
+struct Loc {
+  size_t Pos{}, Ln{1}, Col{1};
+
+  void NextLine() {
+    Pos++;
+    Ln++;
+    Col = 1;
+  }
+
+  void NextColumn() {
+    Pos++;
+    Col++;
+  }
+};
+
+struct Span {
+  Loc Start, End;
+
+  Span(Loc start, Loc end) : Start{start}, End{end} {}
+};
+
+// TODO: Use C++ style file stream.
+class Source {
+  Loc Loc{};
+  FILE *File;
+  [[maybe_unused]] IDs &IDs;
+  [[maybe_unused]] bool Failed{}, Atom{}, NewlineSensitive{};
+
+public:
+  Source(FILE *file, class IDs &ids) : File{file}, IDs{ids} {}
+
+  size_t Size() {
+    fseek(File, 0, SEEK_END);
+    auto size = ftell(File);
+    fseek(File, static_cast<long>(Loc.Pos), SEEK_SET);
+    return static_cast<size_t>(size);
+  }
+
+  Result<std::string> NewText(const Span &span) {
+    auto size = span.End.Pos - span.Start.Pos + 1;
+    std::string text{};
+    text.reserve(size);
+    fseek(File, static_cast<long>(span.Start.Pos), SEEK_SET);
+    if (auto p = fgets(text.data(), static_cast<int>(size), File); p) {
+      return {text};
+    }
+    return ::jian::Error("read text error"); // TODO
+  }
+
+  std::optional<char> Peek() {
+    if (fseek(File, static_cast<long>(Loc.Pos), SEEK_SET) != 0) {
+      return {};
+    }
+    if (int c = fgetc(File); c != EOF) {
+      return static_cast<char>(c);
+    }
+    return {};
+  }
+
+  std::optional<char> Next() {
+    auto next = Peek();
+    if (!next) {
+      return {};
+    }
+    auto c = next.value();
+    if (c == '\n') {
+      Loc.NextLine();
+    } else {
+      Loc.NextColumn();
+    }
+    return c;
+  }
+
+  Source &Back(struct Loc loc) {
+    Loc = loc;
+    Failed = false;
+    return *this;
+  }
+
+  Source &Eat(char c) {
+    auto next = Next();
+    if (!next) {
+      Failed = true;
+      return *this;
+    }
+    Failed = next.value() != c;
+    return *this;
+  }
+
+  Source &SkipSpaces() {
+    while (true) {
+      auto peek = Peek();
+      if (!peek) {
+        break;
+      }
+      auto c = peek.value();
+      if ((NewlineSensitive && c == '\n') || !isspace(c)) {
+        break;
+      }
+      Eat(c);
+    }
+    return *this;
+  }
+};
+
+} // namespace parsing
+
 class Driver {
   const char *Filename;
   FILE *Infile;
-  IDs IDs{};
+  parsing::IDs IDs{};
 
 public:
   explicit Driver(const char *file) : Filename{file} {

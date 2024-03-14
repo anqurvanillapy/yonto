@@ -5,6 +5,7 @@ LINT := \
 	-std=c++17 \
 	-Wno-poison-system-directories \
 	-Wno-c++98-compat-pedantic \
+	-Wno-padded \
 	-Weverything -Werror
 OPTIMIZE := -O0
 DEBUG := -g
