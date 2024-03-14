@@ -2,8 +2,8 @@
 .idea/
 .vscode/
 
-/oxn
-/oxn_sanitize_*
+/jian
+/jian_sanitize_*
 
 # Prerequisites
 *.d

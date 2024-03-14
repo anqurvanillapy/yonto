@@ -1,8 +1,8 @@
-# Oxn 编程语言
+# JianScript
 
 > WIP.
 
-Oxn (念做 *ocean*) 是一门静态类型脚本语言, 它具有以下语言特性:
+JianScript 是一门静态类型脚本语言, 它具有以下语言特性:
 
 * 极简语法
 * 基于 [libgccjit], 支持四种模式的编译或运行:
@@ -13,7 +13,7 @@ Oxn (念做 *ocean*) 是一门静态类型脚本语言, 它具有以下语言特
 * 依赖类型 (dependent types)
 * 行多态 (row polymorphism)
 * 内置 monadic 风格副作用系统 (effect system)
-* 编译器使用 C (C99) 编写
+* 编译器使用 C++17 编写
 
 [libgccjit]: https://gcc.gnu.org/onlinedocs/jit/
 
