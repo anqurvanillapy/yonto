@@ -83,16 +83,6 @@ inline static void *reallocate(void *p, size_t size) {
 
 inline static int max(int a, int b) { return a > b ? a : b; }
 
-struct IDs {
-  volatile int next;
-};
-
-inline static void IDs_Default(struct IDs *g) { g->next = 0; }
-
-inline static int IDs_New(struct IDs *g) {
-  g->next++;
-  return g->next;
-}
 
 struct node {
   struct node *Left, *Right;
@@ -254,11 +244,11 @@ inline static void map_rehash(struct map *m) {
   for (size_t i = 0; i < m->Cap; i++) {
     struct entry *e = m->Buckets[i];
     while (e) {
-      struct entry *next = e->Next;
+      struct entry *Next = e->Next;
       size_t index = map_hash(e->Key, newCap);
       e->Next = newBuckets[index];
       newBuckets[index] = e;
-      e = next;
+      e = Next;
     }
   }
 
@@ -306,12 +296,12 @@ inline static void map_Free(struct map *m) {
   for (size_t i = 0; i < m->Cap; i++) {
     struct entry *e = m->Buckets[i];
     while (e) {
-      struct entry *next = e->Next;
+      struct entry *Next = e->Next;
       if (e->Key) {
         free((void *)e->Key);
       }
       free(e);
-      e = next;
+      e = Next;
     }
   }
   free(m->Buckets);
@@ -342,10 +332,10 @@ struct object {
 };
 
 inline static void object_Init(struct object *o, enum objectKind kind,
-                        struct object *next) {
+                        struct object *Next) {
   o->Kind = kind;
   o->Marked = 0;
-  o->Next = next;
+  o->Next = Next;
 }
 
 inline static void object_Mark(struct object *o) {
@@ -498,16 +488,16 @@ inline static char source_Peek(struct Source *s) {
 }
 
 inline static char source_Next(struct Source *s) {
-  char next = source_Peek(s);
-  if (next < 0) {
+  char Next = source_Peek(s);
+  if (Next < 0) {
     return -1;
   }
-  if (next == '\n') {
+  if (Next == '\n') {
     loc_NextLine(&s->Loc);
-    return next;
+    return Next;
   }
   loc_NextColumn(&s->Loc);
-  return next;
+  return Next;
 }
 
 inline static struct Source *source_Back(struct Source *s, struct loc loc) {
@@ -1345,37 +1335,7 @@ struct Driver {
   struct Source Src;
 };
 
-inline static int Driver_printUsage(void) {
-  printf("JianScript programming language.\n"
-         "\n"
-         "Usage:\n"
-         "\n"
-         "\tjian <command> [<arguments>]\n"
-         "\n"
-         "Commands are:\n"
-         "\n"
-         "\tjian run\t\trun a script with the default JIT mode\n"
-         "\tjian help\tprint this usage message\n"
-         "\tjian version\tprint the version\n"
-         "\n");
-  return 0;
-}
-
-inline static int Driver_printVersion(void) {
-  printf("JianScript v%d.%d.%d\n", JIAN_VERSION_MAJOR, JIAN_VERSION_MINOR,
-         JIAN_VERSION_PATCH);
-  return 0;
-}
-
 inline static int Driver_runScript(struct Driver *d, const char *filename) {
-  d->Filename = filename;
-  d->Infile = fopen(d->Filename, "r");
-  if (!d->Infile) {
-    perror("open file error");
-    return -1;
-  }
-
-  IDs_Default(&d->IDs);
   source_Init(&d->Src, d->Infile, &d->IDs);
   struct Program p;
   Program_Default(&p);
@@ -1421,18 +1381,72 @@ inline static int Driver_Run(struct Driver *d, int argc, const char *argv[]) {
   Driver_printUsage();
   return -1;
 }
-
-inline static int Driver_Free(struct Driver *i) {
-  int ret = fclose(i->Infile);
-  if (ret != 0) {
-    perror("close file error");
-  }
-  return ret;
-}
-
 */
 
 namespace jian {
+
+class Error {
+  [[maybe_unused]] const char *Msg;
+
+public:
+  explicit Error(const char *msg) : Msg{msg} {}
+};
+
+template <typename T> using Result = std::variant<T, Error>;
+
+class IDs {
+  volatile int Next{};
+
+public:
+  int New() {
+    Next++;
+    return Next;
+  }
+};
+
+class Driver {
+  const char *Filename;
+  FILE *Infile;
+  IDs IDs{};
+
+public:
+  explicit Driver(const char *file) : Filename{file} {
+    Infile = fopen(Filename, "r");
+    if (!Infile) {
+      perror("open file error");
+      panic("create driver error");
+    }
+  }
+
+  ~Driver() {
+    int ret = fclose(Infile);
+    if (ret != 0) {
+      perror("close file error");
+      panic("close driver error");
+    }
+  }
+
+  static void PrintVersion() {
+    std::cout << "JianScript v" << JIAN_VERSION_MAJOR << '.'
+              << JIAN_VERSION_MINOR << '.' << JIAN_VERSION_PATCH << std::endl;
+  }
+
+  static void PrintUsage() {
+    std::cout << "JianScript programming language." << std::endl
+              << std::endl
+              << "Usage:" << std::endl
+              << std::endl
+              << "\tjian <command> [<arguments>]" << std::endl
+              << std::endl
+              << "Commands are:" << std::endl
+              << std::endl
+              << "\tjian run\t\trun a script with the default JIT mode"
+              << std::endl
+              << "\tjian help\tprint this usage message" << std::endl
+              << "\tjian version\tprint the version" << std::endl
+              << std::endl;
+  }
+};
 
 static inline void create_code(gccjit::context ctxt) {
   gccjit::type void_type = ctxt.get_type(GCC_JIT_TYPE_VOID);
