@@ -23,6 +23,8 @@ SRC := jian.c
 all: jian sanitize
 
 ${SRC}:
+	echo '#include "jian.h"' >> $@
+	echo 'int main(int argc, const char *argv[]) { return Jian_Main(argc, argv); }' >> $@
 
 jian: ${SRC}
 	${CC} ${ARGS} -o $@ $^
@@ -47,4 +49,4 @@ jian_sanitize_ubsan: ${SRC}
 
 .PHONY: clean
 clean:
-	rm -rf jian jian_sanitize_* *.dSYM
+	rm -rf jian jian.c jian_sanitize_* *.dSYM

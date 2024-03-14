@@ -3,6 +3,7 @@
 .vscode/
 
 /jian
+/jian.c
 /jian_sanitize_*
 
 # Prerequisites
