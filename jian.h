@@ -1,6 +1,46 @@
 #pragma once
 
+#include <iostream>
 #include <libgccjit++.h>
+
+inline constexpr auto JIAN_VERSION_MAJOR = 0;
+inline constexpr auto JIAN_VERSION_MINOR = 1;
+inline constexpr auto JIAN_VERSION_PATCH = 0;
+
+#ifdef __GNUC__
+#include <execinfo.h>
+inline static void printStack() {
+  void *buf[10];
+  int frameNum = backtrace(buf, sizeof(buf) / sizeof(void *));
+  char **symbols = backtrace_symbols(buf, frameNum);
+
+  std::cout << "stacktrace:" << std::endl;
+  for (int i = 0; i < frameNum; ++i) {
+    std::cout << '\t' << symbols[i] << std::endl;
+  }
+
+  free(symbols);
+}
+#else
+inline static void printStack() { printf("(unknown)\n"); }
+#endif
+
+[[noreturn]] inline static void panic(const char *msg) {
+  std::cout << "panic: " << msg << std::endl << std::endl;
+  printStack();
+  exit(1);
+}
+
+[[noreturn]] inline static void unreachable() { panic("unreachable"); }
+
+#if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) &&   \
+    !__has_feature(memory_sanitizer) &&                                        \
+    !__has_feature(undefined_behavior_sanitizer)
+[[noreturn]] inline static void onSignal(int sig) { panic(strerror(sig)); }
+inline static void recovery() { signal(SIGSEGV, onSignal); }
+#else
+inline static void recovery() {}
+#endif
 
 /*
 #include <ctype.h>
@@ -9,36 +49,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define JIAN_VERSION_MAJOR 0
-#define JIAN_VERSION_MINOR 1
-#define JIAN_VERSION_PATCH 0
-
-#ifdef __GNUC__
-#include <execinfo.h>
-inline static void printStack(void) {
-  void *buf[10];
-  int frameNum = backtrace(buf, sizeof(buf) / sizeof(void *));
-  char **symbols = backtrace_symbols(buf, frameNum);
-
-  printf("stacktrace:\n");
-  for (int i = 0; i < frameNum; ++i) {
-    printf("\t%s\n", symbols[i]);
-  }
-
-  free(symbols);
 }
-#else
-inline static void printStack(void) { printf("(unknown)\n"); }
-#endif
-
-inline static void panic(const char *msg) {
-  printf("panic: %s\n\n", msg);
-  printStack();
-  exit(1);
-}
-
-inline static void unreachable(void) { panic("unreachable"); }
 
 inline static void *allocate(size_t size) {
   void *ret = malloc(size);
@@ -1419,26 +1430,11 @@ inline static int Driver_Free(struct Driver *i) {
   return ret;
 }
 
-#if !__has_feature(address_sanitizer) && !__has_feature(thread_sanitizer) &&   \
-    !__has_feature(memory_sanitizer) &&                                        \
-    !__has_feature(undefined_behavior_sanitizer)
-inline static void onSignal(int sig) { panic(strerror(sig)); }
-inline static void recovery(void) { signal(SIGSEGV, onSignal); }
-#else
-inline static void recovery(void) {}
-#endif
 */
 
 namespace jian {
 
 static inline void create_code(gccjit::context ctxt) {
-  /* Let's try to inject the equivalent of this C code:
-     void
-     greet (const char *name)
-     {
-        printf ("hello %s\n", name);
-     }
-  */
   gccjit::type void_type = ctxt.get_type(GCC_JIT_TYPE_VOID);
   gccjit::type const_char_ptr_type = ctxt.get_type(GCC_JIT_TYPE_CONST_CHAR_PTR);
   gccjit::param param_name = ctxt.new_param(const_char_ptr_type, "name");
@@ -1464,9 +1460,9 @@ static inline int main(int argc, const char *argv[]) {
   (void)argc;
   (void)argv;
 
-  /*
   recovery();
 
+  /*
   struct Driver driver;
   if (Driver_Run(&driver, argc, argv) != 0) {
     return 1;
@@ -1497,7 +1493,7 @@ static inline int main(int argc, const char *argv[]) {
 
   /* Extract the generated code from "result".  */
   typedef void (*fn_type)(const char *);
-  fn_type greet =
+  auto greet =
       reinterpret_cast<fn_type>(gcc_jit_result_get_code(result, "greet"));
   if (!greet) {
     fprintf(stderr, "NULL greet");
