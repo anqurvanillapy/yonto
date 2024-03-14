@@ -1,52 +1,44 @@
-CC := clang
+CXX := gcc
 LINT := \
-	-std=c99 \
-	-Werror \
-	-Wall \
-	-Wextra \
-	-Wpedantic \
-	-Wshadow \
-	-Wcast-align \
-	-Wunused \
-	-Wconversion \
-	-Wsign-conversion \
-	-Wnull-dereference \
-	-Wdouble-promotion \
-	-Wformat=2
+	-x c++ -std=c++17 \
+	-Wno-poison-system-directories \
+	-Wno-c++98-compat-pedantic \
+	-Weverything -Werror
 OPTIMIZE := -O0
 DEBUG := -g
-LIBS := -lgccjit
-ARGS := ${LINT} ${OPTIMIZE} ${DEBUG} ${LIBS}
-SRC := jian.c
+INCLUDE := -isystem /usr/local/include
+LIBS := -lc++ -lgccjit
+ARGS := ${LINT} ${OPTIMIZE} ${DEBUG} ${INCLUDE} ${LIBS}
+HEADER := jian.h
+SRC := '\#include"jian.h"\nint main(int c,const char*v[]){return jian::main(c,v);}'
+BIN := echo ${SRC} | ${CXX} ${ARGS}
 
 .PHONY: all
 all: jian sanitize
 
-${SRC}:
-	echo '#include "jian.h"' >> $@
-	echo 'int main(int argc, const char *argv[]) { return Jian_Main(argc, argv); }' >> $@
+${HEADER}:
 
-jian: ${SRC}
-	${CC} ${ARGS} -o $@ $^
+jian: ${HEADER}
+	${BIN} -o $@ -
 
 .PHONY: sanitize
 sanitize: jian_sanitize_asan jian_sanitize_tsan jian_sanitize_ubsan
 
-jian_sanitize_msan: ${SRC}
-	${CC} ${ARGS} -fsanitize=memory -o $@ $^
+jian_sanitize_msan: ${HEADER}
+	${BIN} -fsanitize=memory -o $@ -
 
-jian_sanitize_asan: ${SRC}
-	${CC} ${ARGS} -fsanitize=address -o $@ $^
+jian_sanitize_asan: ${HEADER}
+	${BIN} -fsanitize=address -o $@ -
 
-jian_sanitize_tsan: ${SRC}
-	${CC} ${ARGS} -fsanitize=thread -o $@ $^
+jian_sanitize_tsan: ${HEADER}
+	${BIN} -fsanitize=thread -o $@ -
 
-jian_sanitize_lsan: ${SRC}
-	${CC} ${ARGS} -fsanitize=leak -o $@ $^
+jian_sanitize_lsan: ${HEADER}
+	${BIN} -fsanitize=leak -o $@ -
 
-jian_sanitize_ubsan: ${SRC}
-	${CC} ${ARGS} -fsanitize=undefined -o $@ $^
+jian_sanitize_ubsan: ${HEADER}
+	${BIN} -fsanitize=undefined -o $@ -
 
 .PHONY: clean
 clean:
-	rm -rf jian jian.c jian_sanitize_* *.dSYM
+	rm -rf jian jian_sanitize_* *.dSYM

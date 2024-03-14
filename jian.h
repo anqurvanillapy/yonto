@@ -1,6 +1,8 @@
 #pragma once
 
-#include "libgccjit.h"
+#include <libgccjit++.h>
+
+/*
 #include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -92,7 +94,8 @@ inline static void node_Default(struct node *node) {
   node->Height = 1;
 }
 
-inline static int node_height(struct node *node) { return !node ? 0 : node->Height; }
+inline static int node_height(struct node *node) { return !node ? 0 :
+node->Height; }
 
 inline static struct node *node_rightRotate(struct node *x) {
   struct node *y = x->Left;
@@ -565,10 +568,8 @@ inline static struct Source *eoi(union ParserCtx *ctx, struct Source *s) {
 static struct Parser Soi = {.Parse = soi};
 static struct Parser Eoi = {.Parse = eoi};
 
-inline static struct Source *parseAtom(struct Parser *parser, struct Source *s) {
-  int atom = s->Atom;
-  s->Atom = true;
-  s = parser->Parse(&parser->Ctx, s);
+inline static struct Source *parseAtom(struct Parser *parser, struct Source *s)
+{ int atom = s->Atom; s->Atom = true; s = parser->Parse(&parser->Ctx, s);
   s->Atom = atom;
   return s;
 }
@@ -615,8 +616,8 @@ inline static struct Source *range(union ParserCtx *ctx, struct Source *s) {
 static struct Parser AsciiDigit = {range, {.Range = {'0', '9'}}};
 // static struct Parser AsciiNonZeroDigit = {Range, {.Range = {'1', '9'}}};
 
-inline static struct Source *parseLowercase(struct span *span, struct Source *s) {
-  struct loc start = s->Loc;
+inline static struct Source *parseLowercase(struct span *span, struct Source *s)
+{ struct loc start = s->Loc;
 
   char first = source_Peek(s);
   if (first < 0 || !islower(first) || !isalpha(first)) {
@@ -641,12 +642,9 @@ inline static struct Source *lowercase(union ParserCtx *ctx, struct Source *s) {
   return parseLowercase(ctx->Span, s);
 }
 
-inline static struct Source *parseAll(struct Parser **parsers, struct Source *s) {
-  struct Parser **parser = parsers;
-  while (*parser) {
-    s = (*parser)->Parse(&(*parser)->Ctx, s);
-    if (s->Failed) {
-      return s;
+inline static struct Source *parseAll(struct Parser **parsers, struct Source *s)
+{ struct Parser **parser = parsers; while (*parser) { s =
+(*parser)->Parse(&(*parser)->Ctx, s); if (s->Failed) { return s;
     }
     parser++;
     if (!s->Atom && *parser) {
@@ -660,12 +658,10 @@ inline static struct Source *all(union ParserCtx *ctx, struct Source *s) {
   return parseAll(ctx->Parsers, s);
 }
 
-inline static struct Source *parseAny(struct Parser **parsers, struct Source *s) {
-  struct loc loc = s->Loc;
-  for (struct Parser **parser = parsers; *parser; parser++) {
-    s = (*parser)->Parse(&(*parser)->Ctx, s);
-    if (!s->Failed) {
-      return s;
+inline static struct Source *parseAny(struct Parser **parsers, struct Source *s)
+{ struct loc loc = s->Loc; for (struct Parser **parser = parsers; *parser;
+parser++) { s = (*parser)->Parse(&(*parser)->Ctx, s); if (!s->Failed) { return
+s;
     }
     s = source_Back(s, loc);
   }
@@ -745,7 +741,8 @@ struct App {
   struct slice Args;
 };
 
-inline static void App_Default(struct App *a) { slice_Init(&a->Args, sizeof(struct Expr)); }
+inline static void App_Default(struct App *a) { slice_Init(&a->Args,
+sizeof(struct Expr)); }
 
 inline static struct Source *Arg(union ParserCtx *ctx, struct Source *s) {
   struct Expr a;
@@ -859,26 +856,20 @@ struct Lambda {
 
 inline static void Lambda_Default(struct Lambda *lam) { lam->Params = NULL; }
 
-inline static struct Source *Expr_lambda(union ParserCtx *ctx, struct Source *s) {
-  struct Lambda *lam = new (struct Lambda);
-  Lambda_Default(lam);
-  struct Parser ps = {Params, {.Nodes = (struct node **)&lam->Params}};
-  struct Parser body = {Expr, {.Expr = &lam->Body}};
-  struct Parser *parsers[] = {&ps, &Arrow, &body, NULL};
-  s = parseAll(parsers, s);
-  if (s->Failed) {
-    free(lam);
-    return s;
+inline static struct Source *Expr_lambda(union ParserCtx *ctx, struct Source *s)
+{ struct Lambda *lam = new (struct Lambda); Lambda_Default(lam); struct Parser
+ps = {Params, {.Nodes = (struct node **)&lam->Params}}; struct Parser body =
+{Expr, {.Expr = &lam->Body}}; struct Parser *parsers[] = {&ps, &Arrow, &body,
+NULL}; s = parseAll(parsers, s); if (s->Failed) { free(lam); return s;
   }
   ctx->Expr->Kind = Expr_Lam;
   ctx->Expr->Data.Lam = lam;
   return s;
 }
 
-inline static struct Source *decimalDigits(union ParserCtx *ctx, struct Source *s) {
-  struct loc loc = s->Loc;
-  struct Parser optionalUnder = {option, {.Parser = &Under}};
-  struct Parser *otherDigits[] = {&optionalUnder, &AsciiDigit, NULL};
+inline static struct Source *decimalDigits(union ParserCtx *ctx, struct Source
+*s) { struct loc loc = s->Loc; struct Parser optionalUnder = {option, {.Parser =
+&Under}}; struct Parser *otherDigits[] = {&optionalUnder, &AsciiDigit, NULL};
   struct Parser allOtherDigits = {all, {.Parsers = otherDigits}};
   struct Parser manyOtherDigits = {many, {.Parser = &allOtherDigits}};
   struct Parser *digits[] = {&AsciiDigit, &manyOtherDigits, NULL};
@@ -889,21 +880,18 @@ inline static struct Source *decimalDigits(union ParserCtx *ctx, struct Source *
   return s;
 }
 
-inline static struct Source *decimalNumber(union ParserCtx *ctx, struct Source *s) {
-  struct Parser parser = {decimalDigits, {.Span = ctx->Span}};
-  return parseAtom(&parser, s);
+inline static struct Source *decimalNumber(union ParserCtx *ctx, struct Source
+*s) { struct Parser parser = {decimalDigits, {.Span = ctx->Span}}; return
+parseAtom(&parser, s);
 }
 
 inline static struct Source *Number(union ParserCtx *ctx, struct Source *s) {
   return decimalNumber(ctx, s);
 }
 
-inline static struct Source *Expr_number(union ParserCtx *ctx, struct Source *s) {
-  struct span num;
-  union ParserCtx num_ctx = {.Span = &num};
-  s = Number(&num_ctx, s);
-  if (!s->Failed) {
-    ctx->Expr->Kind = Expr_Num;
+inline static struct Source *Expr_number(union ParserCtx *ctx, struct Source *s)
+{ struct span num; union ParserCtx num_ctx = {.Span = &num}; s =
+Number(&num_ctx, s); if (!s->Failed) { ctx->Expr->Kind = Expr_Num;
     ctx->Expr->Data.Span = num;
   }
   return s;
@@ -917,10 +905,9 @@ inline static struct Source *Expr_unit(union ParserCtx *ctx, struct Source *s) {
   return s;
 }
 
-inline static struct Source *Expr_false(union ParserCtx *ctx, struct Source *s) {
-  s = False.Parse(&False.Ctx, s);
-  if (!s->Failed) {
-    ctx->Expr->Kind = Expr_False;
+inline static struct Source *Expr_false(union ParserCtx *ctx, struct Source *s)
+{ s = False.Parse(&False.Ctx, s); if (!s->Failed) { ctx->Expr->Kind =
+Expr_False;
   }
   return s;
 }
@@ -943,10 +930,9 @@ inline static struct Source *Expr_ref(union ParserCtx *ctx, struct Source *s) {
   return s;
 }
 
-inline static struct Source *Expr_paren(union ParserCtx *ctx, struct Source *s) {
-  struct Parser e = {Expr, {.Expr = ctx->Expr}};
-  struct Parser *parsers[] = {&LParen, &e, &RParen, NULL};
-  return parseAll(parsers, s);
+inline static struct Source *Expr_paren(union ParserCtx *ctx, struct Source *s)
+{ struct Parser e = {Expr, {.Expr = ctx->Expr}}; struct Parser *parsers[] =
+{&LParen, &e, &RParen, NULL}; return parseAll(parsers, s);
 }
 
 inline static struct Source *ParseExpr(struct Expr *expr, struct Source *s) {
@@ -1112,11 +1098,9 @@ inline static void Resolver_insertLocal(void *data, struct node *node) {
   }
 }
 
-inline static void Resolver_insertLocals(struct Resolver *r, struct Param *params) {
-  map_Default(&r->Params);
-  tree_Iter(r, (struct node *)params, Resolver_validateLocal);
-  if (r->State != Resolution_OK) {
-    return;
+inline static void Resolver_insertLocals(struct Resolver *r, struct Param
+*params) { map_Default(&r->Params); tree_Iter(r, (struct node *)params,
+Resolver_validateLocal); if (r->State != Resolution_OK) { return;
   }
   map_Merge(&r->Locals, &r->Params);
   tree_Iter(r, (struct node *)params, Resolver_insertLocal);
@@ -1264,10 +1248,8 @@ inline static void Elab_Init(struct Elab *e, struct IDs *ids) {
   ElabState_Default(&e->State);
 }
 
-inline static void Elab_Check(struct Elab *e, struct Expr *ex, struct Term *ty) {
-  (void)e;
-  switch (ex->Kind) {
-  case Expr_App:
+inline static void Elab_Check(struct Elab *e, struct Expr *ex, struct Term *ty)
+{ (void)e; switch (ex->Kind) { case Expr_App:
     // TODO
     panic("TODO: application");
   case Expr_Ite:
@@ -1445,67 +1427,89 @@ inline static void recovery(void) { signal(SIGSEGV, onSignal); }
 #else
 inline static void recovery(void) {}
 #endif
+*/
 
-inline static int Jian_Main(int argc, const char *argv[]) {
+namespace jian {
+
+static inline void create_code(gccjit::context ctxt) {
+  /* Let's try to inject the equivalent of this C code:
+     void
+     greet (const char *name)
+     {
+        printf ("hello %s\n", name);
+     }
+  */
+  gccjit::type void_type = ctxt.get_type(GCC_JIT_TYPE_VOID);
+  gccjit::type const_char_ptr_type = ctxt.get_type(GCC_JIT_TYPE_CONST_CHAR_PTR);
+  gccjit::param param_name = ctxt.new_param(const_char_ptr_type, "name");
+  std::vector<gccjit::param> func_params;
+  func_params.push_back(param_name);
+  gccjit::function func = ctxt.new_function(GCC_JIT_FUNCTION_EXPORTED,
+                                            void_type, "greet", func_params, 0);
+
+  gccjit::param param_format = ctxt.new_param(const_char_ptr_type, "format");
+  std::vector<gccjit::param> printf_params;
+  printf_params.push_back(param_format);
+  gccjit::function printf_func = ctxt.new_function(
+      GCC_JIT_FUNCTION_IMPORTED, ctxt.get_type(GCC_JIT_TYPE_INT), "printf",
+      printf_params, 1);
+
+  gccjit::block block = func.new_block();
+  block.add_eval(
+      ctxt.new_call(printf_func, ctxt.new_rvalue("Hello, %s!\n"), param_name));
+  block.end_with_return();
+}
+
+static inline int main(int argc, const char *argv[]) {
+  (void)argc;
+  (void)argv;
+
+  /*
   recovery();
 
   struct Driver driver;
   if (Driver_Run(&driver, argc, argv) != 0) {
     return 1;
   }
+  */
 
-  // JIT example below.
+  gccjit::context ctxt;
+  gcc_jit_result *result;
 
-  gcc_jit_context *ctx = gcc_jit_context_acquire();
-  if (!ctx) {
-    printf("acquire JIT context error\n");
-    return 1;
+  /* Get a "context" object for working with the library.  */
+  ctxt = gccjit::context::acquire();
+
+  /* Set some options on the context.
+     Turn this on to see the code being generated, in assembler form.  */
+  ctxt.set_bool_option(GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE, 0);
+
+  /* Populate the context.  */
+  create_code(ctxt);
+
+  /* Compile the code.  */
+  result = ctxt.compile();
+  if (!result) {
+    fprintf(stderr, "NULL result");
+    exit(1);
   }
 
-  gcc_jit_context_set_bool_option(ctx, GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE,
-                                  1);
+  ctxt.release();
 
-  gcc_jit_type *void_type = gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_VOID);
-  gcc_jit_type *const_char_ptr_type =
-      gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_CONST_CHAR_PTR);
-  gcc_jit_param *param_name =
-      gcc_jit_context_new_param(ctx, NULL, const_char_ptr_type, "name");
-  gcc_jit_function *func =
-      gcc_jit_context_new_function(ctx, NULL, GCC_JIT_FUNCTION_EXPORTED,
-                                   void_type, "say_hi", 1, &param_name, 0);
-  gcc_jit_param *param_format =
-      gcc_jit_context_new_param(ctx, NULL, const_char_ptr_type, "format");
-  gcc_jit_function *printf_func = gcc_jit_context_new_function(
-      ctx, NULL, GCC_JIT_FUNCTION_IMPORTED,
-      gcc_jit_context_get_type(ctx, GCC_JIT_TYPE_INT), "printf", 1,
-      &param_format, 1);
-
-  gcc_jit_rvalue *args[2];
-  args[0] = gcc_jit_context_new_string_literal(ctx, "Hello, %s!\n");
-  args[1] = gcc_jit_param_as_rvalue(param_name);
-
-  gcc_jit_block *block = gcc_jit_function_new_block(func, NULL);
-  gcc_jit_block_add_eval(
-      block, NULL, gcc_jit_context_new_call(ctx, NULL, printf_func, 2, args));
-  gcc_jit_block_end_with_void_return(block, NULL);
-
-  gcc_jit_result *ret = gcc_jit_context_compile(ctx);
-  if (!ret) {
-    printf("JIT compile error\n");
-    return 1;
+  /* Extract the generated code from "result".  */
+  typedef void (*fn_type)(const char *);
+  fn_type greet =
+      reinterpret_cast<fn_type>(gcc_jit_result_get_code(result, "greet"));
+  if (!greet) {
+    fprintf(stderr, "NULL greet");
+    exit(1);
   }
 
-  void (*say_hi)(const char *) =
-      (void (*)(const char *))gcc_jit_result_get_code(ret, "say_hi");
-  if (!say_hi) {
-    printf("get code error\n");
-    return 1;
-  }
+  /* Now call the generated function: */
+  greet("JianScript");
+  fflush(stdout);
 
-  say_hi("JianScript");
-
-  gcc_jit_context_release(ctx);
-  gcc_jit_result_release(ret);
-
+  gcc_jit_result_release(result);
   return 0;
 }
+
+} // namespace jian
