@@ -6,9 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define OXN_VERSION_MAJOR 0
-#define OXN_VERSION_MINOR 1
-#define OXN_VERSION_PATCH 0
+#define JIAN_VERSION_MAJOR 0
+#define JIAN_VERSION_MINOR 1
+#define JIAN_VERSION_PATCH 0
 
 #ifdef __GNUC__
 #include <execinfo.h>
@@ -1351,24 +1351,24 @@ struct Driver {
 };
 
 static int Driver_printUsage(void) {
-  printf("Oxn programming language.\n"
+  printf("JianScript programming language.\n"
          "\n"
          "Usage:\n"
          "\n"
-         "\toxn <command> [<arguments>]\n"
+         "\tjian <command> [<arguments>]\n"
          "\n"
          "Commands are:\n"
          "\n"
-         "\toxn run\t\trun a script with the default JIT mode\n"
-         "\toxn help\tprint this usage message\n"
-         "\toxn version\tprint the version\n"
+         "\tjian run\t\trun a script with the default JIT mode\n"
+         "\tjian help\tprint this usage message\n"
+         "\tjian version\tprint the version\n"
          "\n");
   return 0;
 }
 
 static int Driver_printVersion(void) {
-  printf("oxn v%d.%d.%d\n", OXN_VERSION_MAJOR, OXN_VERSION_MINOR,
-         OXN_VERSION_PATCH);
+  printf("JianScript v%d.%d.%d\n", JIAN_VERSION_MAJOR, JIAN_VERSION_MINOR,
+         JIAN_VERSION_PATCH);
   return 0;
 }
 
@@ -1500,7 +1500,7 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
 
-  say_hi("Oxn");
+  say_hi("JianScript");
 
   gcc_jit_context_release(ctx);
   gcc_jit_result_release(ret);
