@@ -4,9 +4,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-#include <libgccjit++.h>
 #include <optional>
 #include <variant>
+
+#include <libgccjit++.h>
 
 inline constexpr auto JIAN_VERSION_MAJOR = 0;
 inline constexpr auto JIAN_VERSION_MINOR = 1;
