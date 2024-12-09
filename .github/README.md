@@ -1,8 +1,8 @@
-# JianScript
+# Yonto
 
 > WIP.
 
-JianScript 是一门静态类型脚本语言, 它具有以下语言特性:
+Yonto 脚本语言.
 
 * 酷似 Python 的极简语法
 * ∂CBPV 类型系统
@@ -12,7 +12,7 @@ JianScript 是一门静态类型脚本语言, 它具有以下语言特性:
     * 纯字节码的脚本运行 (即关闭 JIT 引擎)
     * 字节码编译
     * AOT 全机器码编译
-* 编译器使用 C++17 编写
+* 编译器使用 C++23 编写
 
 [libgccjit]: https://gcc.gnu.org/onlinedocs/jit/
 
